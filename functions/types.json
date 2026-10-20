@@ -1,0 +1,295 @@
+{
+  "supplier_bill": {
+    "module": "suppliers",
+    "label": "Company bill",
+    "ur": "سپلائر بل",
+    "debit": "purchases",
+    "credit": "supplier:{party}",
+    "obligation": true
+  },
+  "supplier_payment": {
+    "module": "suppliers",
+    "label": "Pay company / Ograi",
+    "ur": "سپلائر کو ادائیگی",
+    "debit": "supplier:{party}",
+    "credit": "money:{account}",
+    "allocate": true
+  },
+  "supplier_return": {
+    "module": "suppliers",
+    "label": "Confirmed return credit",
+    "ur": "تصدیق شدہ واپسی کریڈٹ",
+    "debit": "supplier:{party}",
+    "credit": "purchases",
+    "allocate": true,
+    "creditReturn": true,
+    "owner": true
+  },
+  "supplier_refund": {
+    "module": "suppliers",
+    "label": "Company cash refund",
+    "ur": "سپلائر سے رقم واپس",
+    "debit": "money:{account}",
+    "credit": "supplier:{party}",
+    "requireCredit": true
+  },
+  "customer_sale": {
+    "module": "customers",
+    "label": "Customer credit sale",
+    "ur": "گاہک کی ادھار فروخت",
+    "debit": "customer:{party}",
+    "credit": "sales",
+    "retired": true
+  },
+  "customer_collection": {
+    "module": "customers",
+    "label": "Receive payment",
+    "ur": "رقم وصول کریں",
+    "debit": "money:{account}",
+    "credit": "customer:{party}",
+    "limit": true,
+    "retired": true
+  },
+  "customer_return": {
+    "module": "customers",
+    "label": "Customer return credit",
+    "ur": "گاہک کا واپسی کریڈٹ",
+    "debit": "returns",
+    "credit": "customer:{party}",
+    "retired": true
+  },
+  "customer_refund": {
+    "module": "customers",
+    "label": "Refund customer",
+    "ur": "گاہک کو رقم واپس",
+    "debit": "customer:{party}",
+    "credit": "money:{account}",
+    "requireCredit": true,
+    "retired": true
+  },
+  "writeoff": {
+    "module": "customers",
+    "label": "Approve write-off",
+    "ur": "قرض معافی منظور کریں",
+    "debit": "expense:writeoff",
+    "credit": "customer:{party}",
+    "owner": true,
+    "limit": true,
+    "retired": true
+  },
+  "loan_lend": {
+    "module": "loans",
+    "label": "Qarz",
+    "ur": "قرض",
+    "debit": "loanAsset:{party}",
+    "credit": "money:{account}"
+  },
+  "loan_collect": {
+    "module": "loans",
+    "label": "Qarz wosool",
+    "ur": "قرض وصول",
+    "debit": "money:{account}",
+    "credit": "loanAsset:{party}",
+    "limit": false
+  },
+  "loan_borrow": {
+    "module": "loans",
+    "label": "Qarz wosool",
+    "ur": "قرض وصول",
+    "debit": "money:{account}",
+    "credit": "loanDebt:{party}",
+    "menuHidden": true
+  },
+  "loan_repay": {
+    "module": "loans",
+    "label": "Qarz",
+    "ur": "قرض",
+    "debit": "loanDebt:{party}",
+    "credit": "money:{account}",
+    "limit": true,
+    "menuHidden": true
+  },
+  "salary_accrual": {
+    "module": "salary",
+    "label": "Accrue salary",
+    "ur": "تنخواہ واجب کریں",
+    "debit": "expense:salary",
+    "credit": "salary:{party}",
+    "obligation": true,
+    "period": true,
+    "menuHidden": true
+  },
+  "salary_payment": {
+    "module": "salary",
+    "label": "Pay salary",
+    "ur": "تنخواہ ادا کریں",
+    "debit": "salary:{party}",
+    "credit": "money:{account}",
+    "allocate": true
+  },
+  "salary_advance": {
+    "module": "salary",
+    "label": "Pay salary advance",
+    "ur": "تنخواہ ایڈوانس دیں",
+    "debit": "salaryAdvance:{party}",
+    "credit": "money:{account}",
+    "menuHidden": true
+  },
+  "salary_apply": {
+    "module": "salary",
+    "label": "Apply salary advance",
+    "ur": "ایڈوانس تنخواہ میں منہا کریں",
+    "debit": "salary:{party}",
+    "credit": "salaryAdvance:{party}",
+    "allocate": true,
+    "menuHidden": true
+  },
+  "rent_accrual": {
+    "module": "rent",
+    "label": "Charge rent period",
+    "ur": "کرایہ واجب کریں",
+    "debit": "expense:rent",
+    "credit": "rent:{party}",
+    "obligation": true,
+    "period": true,
+    "retired": true
+  },
+  "rent_payment": {
+    "module": "rent",
+    "label": "Pay rent",
+    "ur": "کرایہ ادا کریں",
+    "debit": "expense:rent",
+    "credit": "money:{account}",
+    "partyRequired": true,
+    "menuHidden": true
+  },
+  "rent_deposit": {
+    "module": "rent",
+    "label": "Security deposit",
+    "ur": "سیکیورٹی ڈپازٹ",
+    "debit": "deposit:{party}",
+    "credit": "money:{account}",
+    "retired": true
+  },
+  "zakat": {
+    "module": "zakat",
+    "label": "Record zakat",
+    "ur": "زکوٰۃ درج کریں",
+    "debit": "zakat",
+    "credit": "money:{account}",
+    "partyRequired": true
+  },
+  "expense": {
+    "module": "expenses",
+    "label": "Record expense",
+    "ur": "خرچ درج کریں",
+    "debit": "expense:{category}",
+    "credit": "money:{account}"
+  },
+  "capital": {
+    "module": "owner",
+    "label": "Owner capital",
+    "ur": "مالک کا سرمایہ",
+    "debit": "money:{account}",
+    "credit": "capital:{party}",
+    "partyRequired": true
+  },
+  "withdrawal": {
+    "module": "owner",
+    "label": "Owner withdrawal",
+    "ur": "مالک کی نکاسی",
+    "debit": "drawings:{party}",
+    "credit": "money:{account}",
+    "partyRequired": true
+  },
+  "transfer": {
+    "module": "cashbook",
+    "label": "Transfer funds",
+    "ur": "رقم منتقل کریں",
+    "debit": "money:{target}",
+    "credit": "money:{account}",
+    "menuHidden": true
+  },
+  "daily_sales": {
+    "module": "sales",
+    "label": "Net daily sale",
+    "ur": "روزانہ خالص فروخت",
+    "debit": "salesControl",
+    "credit": "netSales",
+    "onePerDay": true,
+    "allowZero": true
+  },
+  "opening_supplier": {
+    "module": "suppliers",
+    "label": "Opening company balance",
+    "ur": "سپلائر کا ابتدائی بقایا",
+    "debit": "opening",
+    "credit": "supplier:{party}",
+    "obligation": true,
+    "owner": true,
+    "menuHidden": true
+  },
+  "opening_customer": {
+    "module": "customers",
+    "label": "Opening customer balance",
+    "ur": "گاہک کا ابتدائی بقایا",
+    "debit": "customer:{party}",
+    "credit": "opening",
+    "owner": true,
+    "retired": true
+  },
+  "opening_cash": {
+    "module": "cashbook",
+    "label": "Opening account balance",
+    "ur": "اکاؤنٹ کا ابتدائی بیلنس",
+    "debit": "money:{account}",
+    "credit": "opening",
+    "owner": true
+  },
+  "opening_loan_asset": {
+    "module": "loans",
+    "label": "Opening loan receivable",
+    "ur": "ابتدائی قابل وصول قرض",
+    "debit": "loanAsset:{party}",
+    "credit": "opening",
+    "owner": true,
+    "menuHidden": true
+  },
+  "opening_loan_debt": {
+    "module": "loans",
+    "label": "Opening loan payable",
+    "ur": "ابتدائی واجب الادا قرض",
+    "debit": "opening",
+    "credit": "loanDebt:{party}",
+    "owner": true,
+    "menuHidden": true
+  },
+  "supplier_apply": {
+    "module": "suppliers",
+    "label": "Apply company advance",
+    "ur": "سپلائر ایڈوانس مختص کریں",
+    "debit": "supplier:{party}",
+    "credit": "supplier:{party}",
+    "allocate": true,
+    "applyCredit": true,
+    "menuHidden": true
+  },
+  "rent_apply": {
+    "module": "rent",
+    "label": "Apply advance rent",
+    "ur": "کرایہ ایڈوانس مختص کریں",
+    "debit": "rent:{party}",
+    "credit": "rent:{party}",
+    "allocate": true,
+    "applyCredit": true,
+    "retired": true
+  },
+  "company_zakat": {
+    "module": "zakat_companies",
+    "label": "Pay company zakat",
+    "ur": "کمپنی کی زکوٰۃ ادا کریں",
+    "debit": "zakat:company",
+    "credit": "money:{account}",
+    "partyRequired": true
+  }
+}

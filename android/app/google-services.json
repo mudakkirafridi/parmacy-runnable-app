@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "706368892405",
+    "project_id": "pharmacy-hisab-20261015-v2",
+    "storage_bucket": "pharmacy-hisab-20261015-v2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:706368892405:android:5550a44ea6e84210d244bc",
+        "android_client_info": {
+          "package_name": "pk.pharmacyhisab.pharmacy_hisab"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBeD7hupOj_TPUSpYfOAOOlUiYBzHYYJdY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
