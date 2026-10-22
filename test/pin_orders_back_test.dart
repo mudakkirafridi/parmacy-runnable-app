@@ -1,3 +1,4 @@
+import 'package:pharmacy_hisab/core/bilingual.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -177,15 +178,23 @@ void main() {
     );
     router.go('/register/orders');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New order'));
+    await tester.tap(find.text(bilingual('New order')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.tap(
+      find.byWidgetPredicate(
+        (w) =>
+            w is DropdownButtonFormField<String> &&
+            w.decoration.labelText == bilingual('Select company'),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Khan Distributors').last);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('order-person')), 'Umar');
     await tester.enterText(find.byKey(const Key('order-amount')), '8000');
-    await tester.tap(find.text('Save order'));
+    await tester.tap(find.text(bilingual('Save order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, bilingual('Save')));
     await tester.pumpAndSettle();
     expect(app.orders.single['companyName'], 'Khan Distributors');
     expect(app.orders.single['staffName'], 'Umar');
@@ -227,15 +236,12 @@ void main() {
     await tester.pumpAndSettle();
     router.push('/register/orders');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New order'));
+    await tester.tap(find.text(bilingual('New order')));
     await tester.pumpAndSettle();
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(find.text('New company order'), findsNothing);
     expect(router.state.uri.path, '/register/orders');
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(router.state.uri.path, '/registers');
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(router.state.uri.path, '/');

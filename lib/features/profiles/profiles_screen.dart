@@ -1,6 +1,7 @@
 part of '../../ui/screens.dart';
 
 const profileCategories = {
+  'committee': 'Installment',
   'people': 'General profiles',
   'loans': 'Loan people',
   'salary': 'Staff profiles',
@@ -17,28 +18,9 @@ class ProfilesScreen extends ConsumerStatefulWidget {
 }
 
 class _ProfilesState extends ConsumerState<ProfilesScreen> {
-  String search = '';
+  String search = '', selectedCategory = '';
   Future<void> add(BuildContext c, AppStore a) async {
-    String? category = widget.category;
-    category ??= await showDialog<String>(
-      context: c,
-      builder: (ctx) => SimpleDialog(
-        title: Text(a.tr('Add profile')),
-        children: [
-          for (final cat in profileCategories.entries.where(
-            (e) => a.canPost(e.key),
-          ))
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, cat.key),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Text(a.tr(cat.value)),
-              ),
-            ),
-        ],
-      ),
-    );
-    if (category != null && c.mounted) await profileDialog(c, a, category);
+    await profileDialog(c, a, widget.category ?? '');
   }
 
   Future<void> remove(BuildContext c, AppStore a, Json record) async {
@@ -63,7 +45,7 @@ class _ProfilesState extends ConsumerState<ProfilesScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: const LocalizedText('Cancel'),
           ),
           if (!purge && balances.isNotEmpty)
             TextButton(
@@ -71,7 +53,7 @@ class _ProfilesState extends ConsumerState<ProfilesScreen> {
                 Navigator.pop(ctx, false);
                 c.push('/register/${record['module']}');
               },
-              child: const Text('Clear balance'),
+              child: const LocalizedText('Clear balance'),
             ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -107,6 +89,7 @@ class _ProfilesState extends ConsumerState<ProfilesScreen> {
           (p) =>
               p['purged'] != true &&
               (widget.category == null || p['module'] == widget.category) &&
+              (selectedCategory.isEmpty || p['module'] == selectedCategory) &&
               categories.any((e) => e.key == p['module']) &&
               (widget.recycleBin
                   ? !AppStore.profileVisible(p)
@@ -150,32 +133,31 @@ class _ProfilesState extends ConsumerState<ProfilesScreen> {
             ),
             const SizedBox(height: 16),
             if (widget.category == null)
-              for (final cat in categories)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Tile(
-                    onTap: () => c.push('/profiles/${cat.key}'),
-                    child: Row(
-                      children: [
-                        Icon(
-                          icons[cat.key] ?? Icons.person_outline,
-                          color: blue,
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Text(
-                            a.tr(cat.value),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        Text('${a.people(cat.key).length}'),
-                        const Icon(Icons.chevron_right),
-                      ],
-                    ),
+              DropdownButtonFormField<String>(
+                initialValue: selectedCategory,
+                isExpanded: true,
+                decoration: InputDecoration(labelText: a.tr('Profile type')),
+                items: [
+                  DropdownMenuItem(
+                    value: '',
+                    child: Text(a.tr('All profiles')),
                   ),
-                ),
+                  for (final cat in categories)
+                    DropdownMenuItem(
+                      value: cat.key,
+                      child: Text(a.tr(cat.value)),
+                    ),
+                ],
+                onChanged: (v) => setState(() => selectedCategory = v!),
+              ),
+            const SizedBox(height: 14),
           ],
           TextField(
+            autocorrect: false,
+            enableSuggestions: false,
+            enableIMEPersonalizedLearning: false,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
             onChanged: (v) => setState(() => search = v),
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search),
@@ -226,16 +208,15 @@ class _ProfilesState extends ConsumerState<ProfilesScreen> {
                           ),
                           if ((record['phone'] ?? '').isNotEmpty)
                             Text(record['phone']),
-                          if (widget.recycleBin)
-                            for (final b
-                                in a.profileBalances(record['id']).entries)
-                              Text(
-                                '${b.key}: ${money(b.value)}',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: orange,
-                                ),
+                          for (final b
+                              in a.profileBalances(record['id']).entries)
+                            Text(
+                              '${a.tr(b.key)}: ${money(b.value)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: orange,
                               ),
+                            ),
                         ],
                       ),
                     ),
@@ -376,6 +357,11 @@ Future<void> editOwners(BuildContext c, AppStore a) async {
                       children: [
                         Expanded(
                           child: TextField(
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            enableIMEPersonalizedLearning: false,
+                            smartDashesType: SmartDashesType.disabled,
+                            smartQuotesType: SmartQuotesType.disabled,
                             controller: row['name'] as TextEditingController,
                             decoration: InputDecoration(
                               labelText: a.tr('Name'),
@@ -386,6 +372,8 @@ Future<void> editOwners(BuildContext c, AppStore a) async {
                         SizedBox(
                           width: 110,
                           child: TextField(
+                            smartDashesType: SmartDashesType.disabled,
+                            smartQuotesType: SmartQuotesType.disabled,
                             key: ValueKey('owner-share-${row['id']}'),
                             inputFormatters: [
                               row['editing'] as CredentialEditingFormatter,

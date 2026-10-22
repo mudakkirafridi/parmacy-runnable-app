@@ -166,7 +166,12 @@ void main() {
       final lock = AppLockController(
         vault: MemoryVault(),
         biometrics: NoFingerprint(),
+        iterations: 5,
       );
+      await lock.bind('test-owner');
+      await lock.setup('1234', '1234', useBiometric: false);
+      lock.lock();
+      var authenticated = false;
       var completed = 0;
       await tester.pumpWidget(
         ProviderScope(
@@ -178,11 +183,16 @@ void main() {
             home: Consumer(
               builder: (context, ref, child) {
                 final deviceLock = ref.watch(appLockProvider);
-                if (deviceLock.enabled) {
+                if (authenticated &&
+                    deviceLock.enabled &&
+                    !deviceLock.passwordLoginPending) {
                   return const Scaffold(body: Text('PIN setup'));
                 }
                 return LoginScreen(
-                  authenticate: (email, password) async => 'test-owner',
+                  authenticate: (email, password) async {
+                    authenticated = true;
+                    return 'test-owner';
+                  },
                   onSignedIn: () => completed++,
                 );
               },
@@ -266,6 +276,89 @@ void main() {
       expect(store.live, false);
       expect(store.requests, isEmpty);
       expect(lock.enabled, false);
+    },
+  );
+  testWidgets(
+    'IME deletion and replacement retain only current credential text',
+    (tester) async {
+      tester.view.physicalSize = const Size(430, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final store = RemoteStore();
+      await tester.runAsync(store.init);
+      final lock = AppLockController(
+        vault: MemoryVault(),
+        biometrics: NoFingerprint(),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appProvider.overrideWith((ref) => store),
+            appLockProvider.overrideWith((ref) => lock),
+          ],
+          child: MaterialApp(
+            home: LoginScreen(
+              authenticate: (_, _) async =>
+                  throw StateError('Incorrect email or password'),
+            ),
+          ),
+        ),
+      );
+      Future<void> edit(String key, List<String> values) async {
+        final field = find.byKey(Key(key));
+        await tester.showKeyboard(field);
+        final config = tester.testTextInput.setClientArgs!;
+        expect(
+          (config['inputType'] as Map)['name'],
+          'TextInputType.visiblePassword',
+        );
+        expect(config['autocorrect'], false);
+        expect(config['enableSuggestions'], false);
+        expect(config['enableIMEPersonalizedLearning'], false);
+        for (final text in values) {
+          tester.testTextInput.updateEditingValue(
+            TextEditingValue(
+              text: text,
+              selection: TextSelection.collapsed(offset: text.length),
+              composing: text.isEmpty
+                  ? TextRange.empty
+                  : TextRange(start: 0, end: text.length),
+            ),
+          );
+          await tester.pump();
+          expect(tester.widget<TextField>(field).controller!.text, text);
+        }
+      }
+
+      await edit('login-email', [
+        'person@example.con',
+        'person@example.co',
+        'person@example.c',
+        'person@example.co',
+        'person@example.com',
+      ]);
+      await edit('login-password', [
+        'sample@178',
+        'sample@17',
+        'sample@1',
+        'sample@12',
+      ]);
+      await tester.tap(find.byTooltip('Show password'));
+      await tester.pump();
+      await edit('login-password', ['sample@1', 'sample@12', '', 'new-value']);
+      await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('login-password')))
+            .controller!
+            .text,
+        isEmpty,
+      );
+      await edit('login-email', ['', 'a', 'a@example.com']);
+      await edit('login-password', ['2', '', 'replacement']);
+      expect(tester.takeException(), isNull);
     },
   );
 }

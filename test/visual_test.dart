@@ -1,3 +1,4 @@
+import 'package:pharmacy_hisab/core/bilingual.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pharmacy_hisab/main.dart';
 import 'package:pharmacy_hisab/data/app_store.dart';
+import 'package:pharmacy_hisab/ui/screens.dart';
 
 void main() {
   testWidgets('all registers, payment, Urdu and dark screens render', (
@@ -114,7 +116,84 @@ void main() {
     await snapshot('salary-payment-v4');
     router.go('/entry/loan_collect?party=loan');
     await snapshot('qarz-wosool-v4');
+    store.profiles.insert(0, {
+      'id': 'staff42',
+      'module': 'salary',
+      'name': 'Umar42',
+      'active': true,
+      'visible': 1,
+    });
+    await tester.runAsync(
+      () => store.submit({
+        'id': 'due42',
+        'type': 'salary_accrual',
+        'party': 'staff42',
+        'amount': 500000,
+        'date': '2026-10-20',
+        'reference': '2026-10',
+        'allocations': [],
+      }),
+    );
+    router.go('/entry/salary_payment?party=staff42');
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('entry-amount')), '10000');
+    await snapshot('salary-preview-v42');
+    await tester.runAsync(
+      () => store.submit({
+        'id': 'pay42',
+        'type': 'salary_payment',
+        'party': 'staff42',
+        'account': 'cash',
+        'amount': 1000000,
+        'date': '2026-10-20',
+        'allocations': [],
+      }),
+    );
+    router.go('/register/salary');
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Umar42');
+    await snapshot('salary-net-v42');
+    await tester.runAsync(
+      () => store.submit({
+        'id': 'expense42',
+        'type': 'expense',
+        'category': 'Lunch',
+        'account': 'cash',
+        'amount': 50000,
+        'date': '2026-10-20',
+      }),
+    );
+    final expense = store.entries.firstWhere((e) => e['id'] == 'expense42');
+    await tester.runAsync(
+      () => store.reverseEntry(expense, 'Entry removed', '2026-10-20'),
+    );
+    router.go('/reports?module=expenses');
+    await tester.pumpAndSettle();
+    entryDetails(
+      tester.element(find.byType(ReportsScreen)),
+      store,
+      store.entries.firstWhere((e) => e['id'] == 'reverse-expense42'),
+    );
+    await snapshot('reversal-v42');
+    Navigator.of(tester.element(find.text(bilingual('Original entry')))).pop();
+    await tester.pumpAndSettle();
+    router.go('/more');
+    await snapshot('more-v411');
+    await tester.drag(find.byType(ListView).first, const Offset(0, -680));
+    await snapshot('more-security-v411');
+    router.go('/login');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Set / reset PIN'));
+    await snapshot('login-inline-pin-v43');
+    router.go('/');
+    await tester.pumpAndSettle();
+    store.toggleDark();
+    router.go('/more');
+    await snapshot('more-dark-v411');
+    store.toggleDark();
     store.toggleLanguage();
+    router.go('/more');
+    await snapshot('more-urdu-v411');
     router.go('/');
     await snapshot('urdu');
     store.toggleDark();

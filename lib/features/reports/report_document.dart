@@ -6,11 +6,13 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/ledger.dart';
+import '../../core/bilingual.dart';
+import '../../core/committee.dart';
 import '../../data/app_store.dart';
 
 class ReportData {
   final String pharmacy, title, from, to, person, note;
-  final bool compactLoan;
+  final bool compactLoan, urdu;
   final List<String> headers;
   final List<String> recordIds, personIds;
   final List<List<String>> rows;
@@ -26,9 +28,11 @@ class ReportData {
     required this.rows,
     required this.summary,
     this.compactLoan = false,
+    this.urdu = false,
     this.recordIds = const [],
     this.personIds = const [],
   });
+  String label(String value) => localizedLabel(value, urdu: urdu);
 }
 
 ReportData buildReportData(
@@ -41,6 +45,16 @@ ReportData buildReportData(
   String party = '',
   List<Json>? historySource,
 }) {
+  if (module == 'committee') {
+    return buildInstallmentReport(
+      a,
+      records,
+      from,
+      to,
+      party: party,
+      historySource: historySource,
+    );
+  }
   if (module == 'ograi') {
     return buildOgraiReport(
       a,
@@ -54,6 +68,7 @@ ReportData buildReportData(
   if (module == 'company_bills') {
     final rows = [...records]..sort((a, b) => a['date'].compareTo(b['date']));
     return ReportData(
+      urdu: a.ur,
       pharmacy: a.settings['name'] ?? 'Family Pharmacy',
       title: 'Company bills',
       from: from,
@@ -66,9 +81,9 @@ ReportData buildReportData(
         for (final e in rows)
           [
             a.entryName(e),
-            money(e['amount']),
+            '${e['reversedBy'] != null ? '${a.tr('Reversed')} · ' : ''}${money(e['amount'])}',
             e['date'],
-            '${e['reference'] ?? ''}${e['reversedBy'] != null ? ' (reversed)' : ''}',
+            '${e['reference'] ?? ''}${e['reversedBy'] != null ? ' (${a.tr('Reversed')})' : ''}',
           ],
       ],
       summary: {
@@ -155,15 +170,79 @@ ReportData buildReportData(
     }
   }
   if (module == 'salary') {
-    summary['Salary remaining'] = money(-sum(closing, 'salary:'));
-    summary['Staff advance'] = money(sum(closing, 'salaryAdvance:'));
+    final staff = <String>{
+      for (final key in closing.keys.where(
+        (k) => k.startsWith('salary:') || k.startsWith('salaryAdvance:'),
+      ))
+        key.substring(key.indexOf(':') + 1),
+    };
+    var due = 0, advance = 0;
+    for (final id in staff) {
+      final net =
+          -(closing['salary:$id'] ?? 0) - (closing['salaryAdvance:$id'] ?? 0);
+      if (net > 0) {
+        due += net;
+      } else {
+        advance -= net;
+      }
+    }
+    summary['Salary remaining'] = money(due);
+    summary['Staff advance'] = money(advance);
   }
   if (module == 'zakat') summary['Zakat paid'] = money(sum(period, 'zakat'));
   if (statement) {
     summary['Opening net balance'] = money(balance(before));
     summary['Closing net balance'] = money(balance(closing));
   }
-  summary['Records'] = '${records.length}';
+  if (module == 'committee') {
+    final plans = a.profiles.where(
+      (p) => p['module'] == 'committee' && (party.isEmpty || p['id'] == party),
+    );
+    var paid = 0, received = 0, remaining = 0;
+    for (final c in CommitteeProgress.all(
+      plans,
+      historySource ?? a.entries,
+    ).values) {
+      paid += c.paid;
+      received += c.received;
+      remaining += c.remaining;
+    }
+    summary.clear();
+    summary.addAll({
+      'Qist di': money(paid),
+      'Committee mili': money(received),
+      'Qistain baqi': money(remaining),
+    });
+  }
+  if (module == 'all') {
+    final balances = Json.from(a.state['balances']);
+    final staffIds = <String>{
+      for (final key in balances.keys.where(
+        (k) => k.startsWith('salary:') || k.startsWith('salaryAdvance:'),
+      ))
+        key.substring(key.indexOf(':') + 1),
+    };
+    var salary = 0, companies = 0;
+    for (final id in staffIds) {
+      final due =
+          -(balances['salary:$id'] as int? ?? 0) -
+          (balances['salaryAdvance:$id'] as int? ?? 0);
+      if (due > 0) salary += due;
+    }
+    for (final e in balances.entries.where(
+      (e) => e.key.startsWith('supplier:'),
+    )) {
+      if ((e.value as int) < 0) companies -= e.value as int;
+    }
+    summary.clear();
+    summary.addAll({
+      'Qarz baqaya': money(loanTotal(balances)),
+      'Remaining salary': money(salary),
+      'Remaining company payments': money(companies),
+    });
+  } else {
+    summary['Records'] = '${records.length}';
+  }
   final chronology = {
     for (var i = 0; i < a.entries.length; i++) a.entries[i]['id']: i,
   };
@@ -200,8 +279,9 @@ ReportData buildReportData(
       );
     final positions = loanPositions(closing);
     return ReportData(
+      urdu: a.ur,
       pharmacy: a.settings['name'] ?? 'Family Pharmacy',
-      title: 'Qarz',
+      title: 'Loans',
       from: from,
       to: to,
       person: '',
@@ -249,8 +329,9 @@ ReportData buildReportData(
       ),
     };
     return ReportData(
+      urdu: a.ur,
       pharmacy: a.settings['name'] ?? 'Family Pharmacy',
-      title: 'Qarz',
+      title: 'Loans',
       from: from == '2000-01-01' && sorted.isNotEmpty
           ? sorted.first['date']
           : from,
@@ -269,19 +350,20 @@ ReportData buildReportData(
   for (final e in sorted) {
     final reversal = e['type'] == 'reversal';
     final type = reversal
-        ? 'Reversal: ${a.typeLabel(byId[e['reference']]?['type'] ?? 'reversal')}'
+        ? '${a.tr('Reversal')}: ${a.typeLabel(byId[e['reference']]?['type'] ?? 'reversal')}'
         : e['module'] == 'orders'
-        ? 'Company order'
+        ? a.tr('Company order')
         : a.typeLabel(e['type']);
     final name = (a.entryName(e)).toString();
     rows.add([
       name.isEmpty ? (e['category'] ?? type) : name,
       '${reversal ? '- ' : ''}${money(e['amount'])}',
       e['date'],
-      '$type${e['reversedBy'] != null ? ' (reversed)' : ''}${e['staffName'] == null ? '' : ' / ${e['staffName']}'}',
+      '$type${e['reversedBy'] != null ? ' (${a.tr('Reversed')})' : ''}${e['staffName'] == null ? '' : ' / ${e['staffName']}'}',
     ]);
   }
   return ReportData(
+    urdu: a.ur,
     pharmacy: a.settings['name'] ?? 'Family Pharmacy',
     title: title,
     from: from,
@@ -328,6 +410,7 @@ ReportData buildOgraiReport(
   final selected = records.map((e) => e['id']).toSet(),
       balances = <String, int>{};
   final rows = <List<String>>[], ids = <String>[];
+  final shownDays = <String>{};
   for (final e in history) {
     final id = '${e['party']}';
     final before = balances[id] ?? 0;
@@ -348,6 +431,19 @@ ReportData buildOgraiReport(
     final reduction = -delta;
     rows.add([
       if (party.isEmpty) a.entryName(e),
+      shownDays.add('$id:${e['date']}')
+          ? money(
+              history
+                  .where(
+                    (b) =>
+                        b['type'] == 'supplier_bill' &&
+                        b['party'] == id &&
+                        b['date'] == e['date'] &&
+                        b['reversedBy'] == null,
+                  )
+                  .fold<int>(0, (n, b) => n + (b['amount'] as int)),
+            )
+          : '-',
       money(before),
       type == 'supplier_return' ? '-' : money(reduction),
       type == 'supplier_return' ? money(reduction) : '-',
@@ -356,6 +452,7 @@ ReportData buildOgraiReport(
     ]);
   }
   return ReportData(
+    urdu: a.ur,
     pharmacy: a.settings['name'] ?? 'Family Pharmacy',
     title: 'Ograi',
     from: from,
@@ -365,6 +462,7 @@ ReportData buildOgraiReport(
     recordIds: ids,
     headers: [
       if (party.isEmpty) 'Company',
+      'Day bills',
       'Before',
       'Paid',
       'Return',
@@ -378,7 +476,152 @@ ReportData buildOgraiReport(
   );
 }
 
-bool negativeMoney(String value) => RegExp(r'(^|\s)-\s*\d').hasMatch(value);
+ReportData buildInstallmentReport(
+  AppStore a,
+  List<Json> records,
+  String from,
+  String to, {
+  String party = '',
+  List<Json>? historySource,
+}) {
+  final all = historySource ?? a.entries,
+      byId = {for (final e in (historySource ?? a.entries)) e['id']: e};
+  final rank = {for (var i = 0; i < all.length; i++) all[i]['id']: i};
+  final history =
+      all
+          .where(
+            (e) =>
+                e['module'] == 'committee' &&
+                (party.isEmpty || e['party'] == party) &&
+                '${e['date']}'.compareTo(to) <= 0,
+          )
+          .toList()
+        ..sort((x, y) {
+          final d = '${x['date']}'.compareTo('${y['date']}');
+          if (d != 0) return d;
+          final t = '${x['createdAt'] ?? ''}'.compareTo(
+            '${y['createdAt'] ?? ''}',
+          );
+          return t != 0
+              ? t
+              : (rank[y['id']] ?? 0).compareTo(rank[x['id']] ?? 0);
+        });
+  final plans = {
+    for (final p in a.profiles.where((p) => p['module'] == 'committee'))
+      p['id']: p,
+  };
+  final paid = <String, int>{},
+      selected = records.map((e) => e['id']).toSet(),
+      rows = <List<String>>[],
+      ids = <String>[];
+  for (final e in history) {
+    final id = '${e['party']}', total = plans[id]?['totalAmount'] as int? ?? 0;
+    final before = total - (paid[id] ?? 0),
+        source = e['type'] == 'reversal' ? byId[e['reference']] : e;
+    final delta = ((e['effects'] as Json?)?['committee:$id'] as int?) ?? 0;
+    final pay = source?['type'] == 'committee_pay';
+    if (pay) paid[id] = (paid[id] ?? 0) + delta;
+    if (!selected.contains(e['id']) || '${e['date']}'.compareTo(from) < 0) {
+      continue;
+    }
+    ids.add(e['id']);
+    rows.add([
+      if (party.isEmpty) a.entryName(e),
+      money(before),
+      pay ? money(delta) : '-',
+      pay ? '-' : money(-delta),
+      money(total - (paid[id] ?? 0)),
+      e['date'],
+    ]);
+  }
+  final progress = CommitteeProgress.all(
+    plans.values.where((p) => party.isEmpty || p['id'] == party),
+    all,
+  );
+  return ReportData(
+    urdu: a.ur,
+    pharmacy: a.settings['name'] ?? 'Family Pharmacy',
+    title: 'Installment',
+    from: from,
+    to: to,
+    person: party.isEmpty ? '' : a.name(party),
+    note: '',
+    headers: [
+      if (party.isEmpty) 'Name',
+      'Balance',
+      'Paid',
+      'Received',
+      'Remaining',
+      'Date',
+    ],
+    rows: rows,
+    recordIds: ids,
+    summary: {
+      'Total amount': money(
+        progress.values.fold<int>(0, (n, p) => n + p.total),
+      ),
+      'Paid': money(progress.values.fold<int>(0, (n, p) => n + p.paid)),
+      'Received': money(progress.values.fold<int>(0, (n, p) => n + p.received)),
+      'Remaining': money(
+        progress.values.fold<int>(0, (n, p) => n + p.remaining),
+      ),
+    },
+  );
+}
+
+ReportData latestReportData(ReportData data) {
+  final dateCol = data.headers.indexOf('Date');
+  if (dateCol < 0) return data;
+  final order = List.generate(data.rows.length, (i) => i)
+    ..sort((x, y) {
+      final d = data.rows[y][dateCol].compareTo(data.rows[x][dateCol]);
+      return d != 0 ? d : y.compareTo(x);
+    });
+  final dayCol = data.headers.indexOf('Day bills'),
+      companyCol = data.headers.indexOf('Company');
+  String dayKey(List<String> row) =>
+      '${companyCol < 0 ? data.person : row[companyCol]}:${row[dateCol]}';
+  final totals = <String, String>{};
+  if (dayCol >= 0) {
+    for (final row in data.rows) {
+      if (row[dayCol] != '-') totals[dayKey(row)] = row[dayCol];
+    }
+  }
+  final seen = <String>{};
+  final rows = <List<String>>[];
+  for (final i in order) {
+    final row = [...data.rows[i]];
+    if (dayCol >= 0) {
+      row[dayCol] = seen.add(dayKey(row)) ? totals[dayKey(row)] ?? '-' : '-';
+    }
+    rows.add(row);
+  }
+  return ReportData(
+    urdu: data.urdu,
+    pharmacy: data.pharmacy,
+    title: data.title,
+    from: data.from,
+    to: data.to,
+    person: data.person,
+    note: data.note,
+    headers: data.headers,
+    rows: rows,
+    summary: data.summary,
+    compactLoan: data.compactLoan,
+    recordIds: [
+      for (final i in order)
+        if (i < data.recordIds.length) data.recordIds[i],
+    ],
+    personIds: [
+      for (final i in order)
+        if (i < data.personIds.length) data.personIds[i],
+    ],
+  );
+}
+
+bool negativeMoney(String value) =>
+    RegExp(r'(^|\s)-\s*\d').hasMatch(value) ||
+    value.toLowerCase().contains('revers');
 
 Future<List<pw.Font>>? _fonts;
 Future<List<pw.Font>> reportFonts() => _fonts ??= Future.wait(
@@ -389,44 +632,168 @@ Future<List<pw.Font>> reportFonts() => _fonts ??= Future.wait(
   ].map((p) async => pw.Font.ttf(await rootBundle.load(p))),
 );
 
-pw.Widget pdfSummary(ReportData data, PdfColor pale, PdfColor blue) =>
-    pw.Container(
-      padding: const pw.EdgeInsets.all(12),
-      decoration: pw.BoxDecoration(
-        color: pale,
-        borderRadius: pw.BorderRadius.circular(7),
+// Flutter's text shaper keeps mixed English/Urdu labels correct in exported PDFs.
+// Amounts and dates remain native PDF text.
+class PdfLabels {
+  final images = <String, (pw.MemoryImage, double, double)>{};
+  String key(String value, double size, double width, int color, bool bold) =>
+      '$value|$size|$width|$color|$bold';
+  bool arabic(String value) => RegExp(r'[\u0600-\u06ff]').hasMatch(value);
+  Future<void> prepare(
+    String value, {
+    double size = 11,
+    double width = 300,
+    int color = 0xff071943,
+    bool bold = false,
+  }) async {
+    if (!arabic(value)) return;
+    final k = key(value, size, width, color, bold);
+    if (images.containsKey(k)) return;
+    const scale = 4.0;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: value,
+        style: TextStyle(
+          fontFamily: 'Inter',
+          fontFamilyFallback: const ['NotoArabic'],
+          fontSize: size * scale,
+          fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+          color: Color(color),
+        ),
       ),
-      child: pw.Column(
-        children: [
-          for (final item in data.summary.entries)
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 4),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(item.key, style: const pw.TextStyle(fontSize: 11)),
-                  pw.Text(
-                    item.value,
-                    style: pw.TextStyle(
-                      fontSize: 13,
-                      color: negativeMoney(item.value)
-                          ? PdfColors.red700
-                          : blue,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: width * scale);
+    final rec = ui.PictureRecorder(), canvas = Canvas(rec);
+    painter.paint(canvas, Offset.zero);
+    final picture = rec.endRecording();
+    final img = await picture.toImage(
+      painter.width.ceil().clamp(1, 10000),
+      painter.height.ceil().clamp(1, 10000),
+    );
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+    images[k] = (
+      pw.MemoryImage(bytes!.buffer.asUint8List()),
+      painter.width / scale,
+      painter.height / scale,
+    );
+    img.dispose();
+    picture.dispose();
+  }
+
+  pw.Widget text(
+    String value, {
+    double size = 11,
+    double width = 300,
+    int color = 0xff071943,
+    bool bold = false,
+  }) {
+    final image = images[key(value, size, width, color, bold)];
+    if (image != null) {
+      return pw.Image(image.$1, width: image.$2, height: image.$3);
+    }
+    return pw.Text(
+      value,
+      style: pw.TextStyle(
+        fontSize: size,
+        fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+        color: PdfColor(
+          ((color >> 16) & 255) / 255,
+          ((color >> 8) & 255) / 255,
+          (color & 255) / 255,
+        ),
       ),
     );
+  }
+}
+
+pw.Widget pdfSummary(
+  ReportData data,
+  PdfColor pale,
+  PdfColor blue,
+  PdfLabels labels,
+) => pw.Container(
+  padding: const pw.EdgeInsets.all(12),
+  decoration: pw.BoxDecoration(
+    color: pale,
+    borderRadius: pw.BorderRadius.circular(7),
+  ),
+  child: pw.Column(
+    children: [
+      for (final item in data.summary.entries)
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(vertical: 4),
+          child: pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              labels.text(data.label(item.key)),
+              pw.Text(
+                item.value,
+                style: pw.TextStyle(
+                  fontSize: 13,
+                  color: negativeMoney(item.value) ? PdfColors.red700 : blue,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+    ],
+  ),
+);
+
+pw.TextDirection pdfDirection(String value) =>
+    RegExp(r'[\u0600-\u06ff]').hasMatch(value)
+    ? pw.TextDirection.rtl
+    : pw.TextDirection.ltr;
 
 Future<Uint8List> buildReportPdf(ReportData data) async {
   final fonts = await reportFonts(), doc = pw.Document();
-  final navy = PdfColor.fromHex('#071943'),
-      blue = PdfColor.fromHex('#005BEA'),
-      pale = PdfColor.fromHex('#EDF4FD');
+  await (_pictureFonts ??= _loadPictureFonts());
+  final labels = PdfLabels(),
+      bodyWidth =
+          (data.headers.length > 5
+              ? PdfPageFormat.a4.landscape.width
+              : PdfPageFormat.a4.width) -
+          64;
+  final weights = [
+        for (final h in data.headers)
+          ['Name', 'Company', 'Entry'].contains(h) ? 1.6 : 1.0,
+      ],
+      weight = data.headers.fold<double>(
+        0,
+        (n, h) => n + (['Name', 'Company', 'Entry'].contains(h) ? 1.6 : 1),
+      );
+  await labels.prepare(data.pharmacy, size: 23, width: bodyWidth, bold: true);
+  await labels.prepare(
+    data.label(data.title),
+    size: 15,
+    width: bodyWidth,
+    color: 0xff005bea,
+  );
+  await labels.prepare(data.person, size: 13, width: bodyWidth);
+  await labels.prepare(data.label('No records in this period.'));
+  for (final k in data.summary.keys) {
+    await labels.prepare(data.label(k));
+  }
+  for (var col = 0; col < data.headers.length; col++) {
+    final width = bodyWidth * weights[col] / weight - 16;
+    await labels.prepare(
+      data.label(data.headers[col]),
+      size: 10,
+      width: width,
+      color: 0xffffffff,
+    );
+    for (final row in data.rows) {
+      await labels.prepare(
+        row[col],
+        size: 9,
+        width: width,
+        bold: col < 2,
+        color: negativeMoney(row[col]) ? 0xffb71c1c : 0xff071943,
+      );
+    }
+  }
+  final blue = PdfColor.fromHex('#005BEA'), pale = PdfColor.fromHex('#EDF4FD');
   doc.addPage(
     pw.MultiPage(
       maxPages: 1000,
@@ -444,18 +811,16 @@ Future<Uint8List> buildReportPdf(ReportData data) async {
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text(
-              data.pharmacy,
-              style: pw.TextStyle(
-                fontSize: 23,
-                color: navy,
-                fontWeight: pw.FontWeight.bold,
-              ),
-            ),
+            labels.text(data.pharmacy, size: 23, width: bodyWidth, bold: true),
             pw.SizedBox(height: 5),
-            pw.Text(data.title, style: pw.TextStyle(fontSize: 15, color: blue)),
+            labels.text(
+              data.label(data.title),
+              size: 15,
+              width: bodyWidth,
+              color: 0xff005bea,
+            ),
             if (data.person.isNotEmpty)
-              pw.Text(data.person, style: const pw.TextStyle(fontSize: 13)),
+              labels.text(data.person, size: 13, width: bodyWidth),
             pw.SizedBox(height: 6),
             pw.SizedBox(height: 8),
             pw.Divider(color: blue),
@@ -479,7 +844,7 @@ Future<Uint8List> buildReportPdf(ReportData data) async {
         ),
       ),
       build: (context) => [
-        if (!data.compactLoan) pdfSummary(data, pale, blue),
+        if (!data.compactLoan) pdfSummary(data, pale, blue, labels),
         pw.SizedBox(height: 14),
         if (data.note.isNotEmpty)
           pw.Text(
@@ -487,7 +852,8 @@ Future<Uint8List> buildReportPdf(ReportData data) async {
             style: const pw.TextStyle(fontSize: 9, lineSpacing: 3),
           ),
         pw.SizedBox(height: 14),
-        if (data.rows.isEmpty) pw.Text('No records in this period.'),
+        if (data.rows.isEmpty)
+          labels.text(data.label('No records in this period.')),
         if (data.rows.isNotEmpty)
           pw.Table(
             columnWidths: {
@@ -509,12 +875,15 @@ Future<Uint8List> buildReportPdf(ReportData data) async {
                   for (final header in data.headers)
                     pw.Padding(
                       padding: const pw.EdgeInsets.all(8),
-                      child: pw.Text(
-                        header,
-                        style: const pw.TextStyle(
-                          color: PdfColors.white,
-                          fontSize: 10,
-                        ),
+                      child: labels.text(
+                        data.label(header),
+                        size: 10,
+                        width:
+                            bodyWidth *
+                                weights[data.headers.indexOf(header)] /
+                                weight -
+                            16,
+                        color: 0xffffffff,
                       ),
                     ),
                 ],
@@ -528,17 +897,14 @@ Future<Uint8List> buildReportPdf(ReportData data) async {
                     for (var col = 0; col < data.rows[index].length; col++)
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(8),
-                        child: pw.Text(
+                        child: labels.text(
                           data.rows[index][col],
-                          style: pw.TextStyle(
-                            fontWeight: col == 0 || col == 1
-                                ? pw.FontWeight.bold
-                                : pw.FontWeight.normal,
-                            fontSize: 9,
-                            color: negativeMoney(data.rows[index][col])
-                                ? PdfColors.red700
-                                : navy,
-                          ),
+                          size: 9,
+                          width: bodyWidth * weights[col] / weight - 16,
+                          bold: col < 2,
+                          color: negativeMoney(data.rows[index][col])
+                              ? 0xffb71c1c
+                              : 0xff071943,
                         ),
                       ),
                   ],
@@ -547,7 +913,7 @@ Future<Uint8List> buildReportPdf(ReportData data) async {
           ),
         if (data.compactLoan) ...[
           pw.SizedBox(height: 14),
-          pdfSummary(data, pale, blue),
+          pdfSummary(data, pale, blue, labels),
         ],
       ],
     ),
@@ -605,7 +971,7 @@ Future<List<Uint8List>> buildTablePictures(ReportData data) async {
 
     text(data.pharmacy, 45, 35, 1350, size: 38, bold: true);
     text(
-      '${data.title}${data.person.isEmpty ? '' : ' / ${data.person}'}',
+      '${data.label(data.title)}${data.person.isEmpty ? '' : ' / ${data.person}'}',
       45,
       95,
       1350,
@@ -619,11 +985,27 @@ Future<List<Uint8List>> buildTablePictures(ReportData data) async {
     final total = weights.fold<double>(0, (a, b) => a + b);
     final widths = [for (final w in weights) 1350 * w / total];
     final paint = Paint()..color = const Color(0xff005bea);
-    canvas.drawRect(const Rect.fromLTWH(30, 155, 1380, 65), paint);
+    var headerHeight = 65.0;
+    for (var i = 0; i < data.headers.length; i++) {
+      final p = TextPainter(
+        text: TextSpan(
+          text: data.label(data.headers[i]),
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontFamilyFallback: ['NotoArabic'],
+            fontSize: 23,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: widths[i] - 20);
+      if (p.height + 30 > headerHeight) headerHeight = p.height + 30;
+    }
+    canvas.drawRect(Rect.fromLTWH(30, 155, 1380, headerHeight), paint);
     var x = 45.0;
     for (var col = 0; col < data.headers.length; col++) {
       text(
-        data.headers[col],
+        data.label(data.headers[col]),
         x,
         173,
         widths[col] - 20,
@@ -633,7 +1015,7 @@ Future<List<Uint8List>> buildTablePictures(ReportData data) async {
       );
       x += widths[col];
     }
-    var y = 235.0;
+    var y = 155 + headerHeight + 15;
     for (final row in rows) {
       var height = 75.0;
       for (var col = 0; col < row.length; col++) {
@@ -670,7 +1052,7 @@ Future<List<Uint8List>> buildTablePictures(ReportData data) async {
     }
     y += 25;
     for (final item in data.summary.entries) {
-      text(item.key, 45, y, 800, bold: true);
+      text(data.label(item.key), 45, y, 800, bold: true);
       text(
         item.value,
         1020,
@@ -700,7 +1082,7 @@ Future<List<Uint8List>> buildLoanPictures(ReportData data) async {
   final pages = data.rows.isEmpty ? 1 : (data.rows.length / 10).ceil();
   for (var page = 0; page < pages; page++) {
     final rows = data.rows.skip(page * 10).take(10).toList();
-    final height = (340 + rows.length * 100 + data.summary.length * 46)
+    var height = (340 + rows.length * 100 + data.summary.length * 46)
         .toDouble();
     final recorder = ui.PictureRecorder(), canvas = Canvas(recorder);
     canvas.drawColor(Colors.white, BlendMode.src);
@@ -729,18 +1111,41 @@ Future<List<Uint8List>> buildLoanPictures(ReportData data) async {
     }
 
     write(data.pharmacy, 45, 35, 990, size: 36);
-    write(data.person.isEmpty ? 'Qarz' : data.person, 45, 95, 990, size: 30);
+    write(
+      data.person.isEmpty ? data.label('Loans') : data.person,
+      45,
+      95,
+      990,
+      size: 30,
+    );
     final paint = Paint()..color = const Color(0xff005bea);
-    canvas.drawRect(const Rect.fromLTWH(30, 150, 1020, 60), paint);
+
     final columns = data.headers.length == 3
         ? [45.0, 400.0, 730.0]
         : [45.0, 250.0, 615.0, 825.0];
     final widths = data.headers.length == 3
         ? [330.0, 315.0, 315.0]
         : [190.0, 350.0, 195.0, 210.0];
+    var headerHeight = 60.0;
+    for (var col = 0; col < data.headers.length; col++) {
+      final t = TextPainter(
+        text: TextSpan(
+          text: data.label(data.headers[col]),
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontFamilyFallback: ['NotoArabic'],
+            fontSize: 23,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: widths[col]);
+      if (t.height + 30 > headerHeight) headerHeight = t.height + 30;
+    }
+    height += headerHeight - 60;
+    canvas.drawRect(Rect.fromLTWH(30, 150, 1020, headerHeight), paint);
     for (var col = 0; col < data.headers.length; col++) {
       write(
-        data.headers[col],
+        data.label(data.headers[col]),
         columns[col],
         165,
         widths[col],
@@ -748,7 +1153,7 @@ Future<List<Uint8List>> buildLoanPictures(ReportData data) async {
         size: 23,
       );
     }
-    var y = 225.0;
+    var y = 150 + headerHeight + 15;
     for (final row in rows) {
       paint.color = const Color(0xffedf4fd);
       canvas.drawRect(Rect.fromLTWH(30, y - 5, 1020, 90), paint);
@@ -768,7 +1173,7 @@ Future<List<Uint8List>> buildLoanPictures(ReportData data) async {
     }
     y += 15;
     for (final item in data.summary.entries) {
-      write(item.key, 45, y, 600, size: 25);
+      write(data.label(item.key), 45, y, 600, size: 25);
       write(
         item.value,
         735,
@@ -806,7 +1211,8 @@ Future<void> shareReport(ReportData data, {bool picture = false}) async {
               name: '$safe-${i + 1}.png',
             ),
         ],
-        text: '${data.title}${data.person.isEmpty ? '' : ' - ${data.person}'}',
+        text:
+            '${data.label(data.title)}${data.person.isEmpty ? '' : ' - ${data.person}'}',
       ),
     );
   } else {

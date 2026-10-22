@@ -217,7 +217,8 @@
     "debit": "salesControl",
     "credit": "netSales",
     "onePerDay": true,
-    "allowZero": true
+    "allowZero": true,
+    "menuHidden": true
   },
   "opening_supplier": {
     "module": "suppliers",
@@ -291,5 +292,46 @@
     "debit": "zakat:company",
     "credit": "money:{account}",
     "partyRequired": true
+  },
+  "daily_sale_cash": {
+    "module": "sales",
+    "label": "Net daily sale",
+    "ur": "روزانہ خالص فروخت",
+    "debit": "money:{account}",
+    "credit": "netSales",
+    "onePerDay": true,
+    "allowZero": true
+  },
+  "committee_pay": {
+    "module": "committee",
+    "label": "Committee qist di",
+    "ur": "کمیٹی قسط دی",
+    "debit": "committee:{party}",
+    "credit": "money:{account}"
+  },
+  "committee_receive": {
+    "module": "committee",
+    "label": "Committee raqam mili",
+    "ur": "کمیٹی رقم ملی",
+    "debit": "money:{account}",
+    "credit": "committee:{party}"
+  },
+  "balance_in": {
+    "module": "cashbook",
+    "label": "Balance adjustment in",
+    "ur": "بیلنس درستگی جمع",
+    "debit": "money:{account}",
+    "credit": "opening",
+    "owner": true,
+    "menuHidden": true
+  },
+  "balance_out": {
+    "module": "cashbook",
+    "label": "Balance adjustment out",
+    "ur": "بیلنس درستگی نکاسی",
+    "debit": "opening",
+    "credit": "money:{account}",
+    "owner": true,
+    "menuHidden": true
   }
 }

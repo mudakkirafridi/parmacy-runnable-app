@@ -5,7 +5,7 @@ service cloud.firestore {
    function me(){return get(/databases/$(database)/documents/stores/$(store)/members/$(request.auth.uid)).data;}
    function active(){return request.auth!=null && me().active==true;}
    function owner(){let m=me();return request.auth!=null && m.active && m.role=='owner';}
-   function access(module,action){let m=me();return request.auth!=null && m.active && (m.role=='owner' || (module!='owner' && ((m.role=='manager' && !(module in ['salary','zakat','zakat_companies','loans'])) || (module+':'+action) in m.permissions)));}
+   function access(module,action){let m=me();return request.auth!=null && m.active && (m.role=='owner' || (module!='owner' && ((m.role=='manager' && !(module in ['salary','zakat','zakat_companies','loans','committee'])) || (module+':'+action) in m.permissions)));}
    function config(){return get(/databases/$(database)/documents/stores/$(store)).data;}
    function control(){let path=/databases/$(database)/documents/stores/$(store)/control/periods;return get(path).data;}
    function definition(e){return e.definition;}
@@ -38,7 +38,7 @@ service cloud.firestore {
    function delta(e,adjust,key){return e.effects.get(key,0)-adjust.effects.get(key,0);}
    function noncash(e,adjust,state,old,key){return (key.matches('^money:.*') && !(key in state.balances)) || (!key.matches('^money:.*') && state.balances.get(key,0)==old.balances.get(key,0)+delta(e,adjust,key));}
    function balancesOK(e,adjust,state,old){return !('' in state.balances) && state.balances.diff(old.balances).affectedKeys().hasOnly([e.debitAccount,e.creditAccount,adjust.debitAccount,adjust.creditAccount])
-    && noncash(e,adjust,state,old,e.debitAccount)&&noncash(e,adjust,state,old,e.creditAccount) && (adjust.debitAccount=='' || (noncash(e,adjust,state,old,adjust.debitAccount)&&noncash(e,adjust,state,old,adjust.creditAccount)));}
+    && noncash(e,adjust,state,old,e.debitAccount)&&noncash(e,adjust,state,old,e.creditAccount) && (adjust.debitAccount=='' || ((adjust.debitAccount==e.debitAccount||adjust.debitAccount==e.creditAccount||noncash(e,adjust,state,old,adjust.debitAccount))&&(adjust.creditAccount==e.debitAccount||adjust.creditAccount==e.creditAccount||noncash(e,adjust,state,old,adjust.creditAccount))));}
    function allocationKeys(source,state,old,extra){let a=source.allocations;let keys=state.obligations.diff(old.obligations).affectedKeys();return
     (a.size()==0&&keys.hasOnly(extra)) || (a.size()==1&&keys.hasOnly([a[0].id].concat(extra))) ||
     (a.size()==2&&keys.hasOnly([a[0].id,a[1].id].concat(extra))) || (a.size()==3&&keys.hasOnly([a[0].id,a[1].id,a[2].id].concat(extra)));}
@@ -48,7 +48,7 @@ service cloud.firestore {
     return source.allocations.size()<=i || (before.party==source.party && before.module==source.module
      && after.diff(before).affectedKeys().hasOnly(['remaining']) && (
       (reversing && after.remaining==before.remaining+a.amount) || (!reversing && after.remaining==before.remaining-a.amount && (source.definition.creditReturn||a.amount<=before.remaining))));}
-   function obligationRows(source,state,old,reversing){return allocationRow(source,state,old,0,reversing)&&allocationRow(source,state,old,1,reversing)&&allocationRow(source,state,old,2,reversing);}
+   function obligationRows(source,state,old,reversing){return source.allocations.size()==0 || (allocationRow(source,state,old,0,reversing)&&allocationRow(source,state,old,1,reversing)&&allocationRow(source,state,old,2,reversing));}
    function obligationPost(e,state,old){let d=definition(e);return (e.allocations.size()==0 || obligationRows(e,state,old,false)) && (
     (!d.obligation&&allocationKeys(e,state,old,[])) || (d.obligation&&allocationKeys(e,state,old,[e.id])&&!(e.id in old.obligations)
     && state.obligations[e.id]=={'id':e.id,'party':e.party,'module':e.module,'reference':e.reference,'original':e.amount,'remaining':e.amount,'date':e.date,'due':e.get('due',e.date)}));}
@@ -70,7 +70,7 @@ service cloud.firestore {
     && ((e.advanceDelta==0&&state.unallocated==old.unallocated)||(e.advanceDelta!=0&&state.unallocated.diff(old.unallocated).affectedKeys().hasOnly([key])));}
    function limitsOK(e,old){return (e.type!='loan_repay'||e.amount<=-old.balances.get(e.debitAccount,0))
     && (e.type!='salary_apply'||e.amount<=old.balances.get(e.creditAccount,0)) && (e.type!='supplier_refund'||e.amount<=old.balances.get(e.creditAccount,0));}
-   function reversalShape(e,source){return owner()&&e.type=='reversal'&&source.type!='reversal'&&!source.keys().hasAny(['reversedBy'])&&e.reference==source.id&&e.module==source.module&&e.amount==source.amount&&e.reason is string&&e.reason.size()>0
+   function reversalShape(e,source){return e.type=='reversal'&&source.type!='reversal'&&!source.keys().hasAny(['reversedBy'])&&e.reference==source.id&&e.module==source.module&&e.amount==source.amount&&e.reason is string&&e.reason.size()>0
     && e.debitAccount==source.creditAccount&&e.creditAccount==source.debitAccount&&e.allocations==source.allocations&&e.allocatedAmount==source.allocatedAmount&&e.advanceDelta==-source.advanceDelta
     && e.effects.keys()==source.effects.keys()&&e.effects[e.debitAccount]==-source.effects[e.debitAccount]&&e.effects[e.creditAccount]==-source.effects[e.creditAccount]
     && getAfter(entryPath(source.id)).data.reversedBy==e.id;}
@@ -80,14 +80,52 @@ service cloud.firestore {
     !key.matches('^money:.*') || change==0 || (getAfter(path).data.balance==accountBefore(account)+change&&getAfter(path).data.lastOperation==state.lastOperation&&getAfter(path).data.lastModule==e.module);}
    function allMoneyOK(e,adjust,state){return
     (!e.debitAccount.matches('^money:.*') || moneyOK(e,adjust,state,e.debitAccount)) && (!e.creditAccount.matches('^money:.*') || moneyOK(e,adjust,state,e.creditAccount))
-    && (adjust.debitAccount=='' || ((!adjust.debitAccount.matches('^money:.*') || moneyOK(e,adjust,state,adjust.debitAccount))&&(!adjust.creditAccount.matches('^money:.*') || moneyOK(e,adjust,state,adjust.creditAccount))));}
+    && (adjust.debitAccount=='' || ((adjust.debitAccount==e.debitAccount||adjust.debitAccount==e.creditAccount||!adjust.debitAccount.matches('^money:.*') || moneyOK(e,adjust,state,adjust.debitAccount))&&(adjust.creditAccount==e.debitAccount||adjust.creditAccount==e.creditAccount||!adjust.creditAccount.matches('^money:.*') || moneyOK(e,adjust,state,adjust.creditAccount))));}
    function common(e,adjust,state,old){return balancesOK(e,adjust,state,old)&&allMoneyOK(e,adjust,state);}
+   function correctionLimits(e,source,old){return
+     (source.type!='salary_advance'||old.balances.get(source.debitAccount,0)-source.effects.get(source.debitAccount,0)>=0)
+     && (e.type!='salary_apply'||e.amount<=old.balances.get(e.creditAccount,0)-source.effects.get(e.creditAccount,0))
+     && (e.type!='supplier_refund'||e.amount<=old.balances.get(e.creditAccount,0)-source.effects.get(e.creditAccount,0))
+     && (e.type!='loan_repay'||e.amount<=-(old.balances.get(e.debitAccount,0)-source.effects.get(e.debitAccount,0)));}
+   function simpleObligationEdit(e,source,state,old){let d=source.definition;return
+    (!d.obligation&&state.obligations==old.obligations) || (d.obligation&&old.obligations[source.id].remaining==source.amount
+      && !(source.id in state.obligations)&&state.obligations.diff(old.obligations).affectedKeys().hasOnly([source.id,e.id])
+      && state.obligations[e.id]=={'id':e.id,'party':e.party,'module':e.module,'reference':e.reference,'original':e.amount,'remaining':e.amount,'date':e.date,'due':e.get('due',e.date)});}
+   function simpleUniqueEdit(e,source,state,old){return
+    (source.unique==null&&e.unique==null&&state.unique==old.unique)
+    || (source.unique!=null&&e.unique!=null&&state.unique.diff(old.unique).affectedKeys().hasOnly([source.unique,e.unique])
+       && (source.unique==e.unique||!(e.unique in old.unique))&&state.unique[e.unique]==e.id
+       && (source.unique==e.unique||!(source.unique in state.unique))
+       && e.unique==(e.definition.onePerDay?'daily_sales:'+e.date:e.type+':'+e.get('party','')+':'+e.reference));}
+   function allocatedFor(a,id){return (a[0].id==id?a[0].amount:0)+(a[1].id==id?a[1].amount:0)+(a[2].id==id?a[2].amount:0);}
+   function editedAllocationRow(id,e,state,old,restored,paid){let before=old.obligations.get(id,{});let after=state.obligations.get(id,{});return
+     (before.module==e.module && (paid==0||before.party==e.party) && after.diff(before).affectedKeys().hasOnly(['remaining'])
+      && after.remaining==before.remaining+restored-paid && (paid==0||e.definition.creditReturn||paid<=before.remaining+restored));}
+   function paymentObligationEdit(e,source,state,old){
+    let pad=[{'id':'','amount':0},{'id':'','amount':0},{'id':'','amount':0}];let sa=source.allocations.concat(pad);let na=e.allocations.concat(pad);let nk=[na[0].id,na[1].id,na[2].id];
+    return !source.definition.obligation && state.unique==old.unique && !('' in state.obligations)
+      && state.obligations.diff(old.obligations).affectedKeys().hasOnly([sa[0].id,sa[1].id,sa[2].id].concat(nk))
+      && (sa[0].id in nk || editedAllocationRow(sa[0].id,e,state,old,sa[0].amount,0))
+      && (sa[1].id in nk || editedAllocationRow(sa[1].id,e,state,old,sa[1].amount,0))
+      && (sa[2].id in nk || editedAllocationRow(sa[2].id,e,state,old,sa[2].amount,0))
+      && (na[0].id==''||editedAllocationRow(na[0].id,e,state,old,allocatedFor(sa,na[0].id),na[0].amount))&&(na[1].id==''||editedAllocationRow(na[1].id,e,state,old,allocatedFor(sa,na[1].id),na[1].amount))&&(na[2].id==''||editedAllocationRow(na[2].id,e,state,old,allocatedFor(sa,na[2].id),na[2].amount));
+   }
+   function correctionOK(e,state,old){
+    let source=original(state);let rev=getAfter(entryPath(state.lastReversal)).data;let mid=state.correctionState;
+    return e.type==source.type && e.replaces==source.id && state.lastKind=='correct'
+      && rev.reference==source.id && correctionLimits(e,source,old)
+      && ((source.allocations.size()==0&&e.allocations.size()==0&&simpleObligationEdit(e,source,state,old)&&simpleUniqueEdit(e,source,state,old))
+        || ((source.allocations.size()>0||e.allocations.size()>0)&&paymentObligationEdit(e,source,state,old)))
+      && ((source.advanceDelta==0&&e.advanceDelta==0&&state.unallocated==old.unallocated&&advanceShape(e,old)) || ((source.advanceDelta!=0||e.advanceDelta!=0)&&advanceState(rev,mid,old)&&advanceShape(e,mid)&&advanceState(e,state,mid)))
+      && common(e,source,state,old);
+   }
+
    function operationOK(e,state,old){return
     (e.type!='reversal' && !e.keys().hasAny(['replaces']) && state.lastKind=='post' && state.lastOriginal=='' && state.lastReversal=='' && obligationPost(e,state,old)&&uniquePost(e,state,old)&&advanceShape(e,old)&&advanceState(e,state,old)&&limitsOK(e,old)&&common(e,zero(),state,old))
-    || (e.type=='reversal' && !e.get('correctionReversal',false) && state.lastKind=='reverse'&&state.lastOriginal==e.reference&&state.lastReversal==e.id&&reversalLimits(original(state),state)&&reversalShape(e,original(state))&&obligationReverse(original(state),state,old)&&uniqueReverse(original(state),state,old)&&advanceState(e,state,old)&&common(e,zero(),state,old))
-    || (e.type=='expense' && e.keys().hasAny(['replaces']) && state.lastKind=='correct'&&owner()&&original(state).type=='expense'&&e.replaces==original(state).id&&state.obligations==old.obligations&&state.unique==old.unique&&state.unallocated==old.unallocated
-      && reversalShape(getAfter(entryPath(state.lastReversal)).data,original(state))&&common(e,original(state),state,old))
-    || (e.type=='reversal' && e.get('correctionReversal',false) && state.lastKind=='correct' && state.lastReversal==e.id && reversalShape(e,original(state)) && e.date==getAfter(entryPath(state.lastOperation)).data.date);}
+    || (e.type=='reversal' && !e.get('correctionReversal',false) && state.lastKind=='reverse'&&state.lastOriginal==e.reference&&state.lastReversal==e.id&&reversalLimits(original(state),state)&&obligationReverse(original(state),state,old)&&uniqueReverse(original(state),state,old)&&advanceState(e,state,old)&&common(e,zero(),state,old))
+    || (e.type!='reversal' && e.keys().hasAny(['replaces']) && 'correctionState' in state && correctionOK(e,state,old))
+    || (!('correctionState' in state) && e.type=='expense' && e.keys().hasAny(['replaces']) && state.lastKind=='correct'&&owner()&&original(state).type=='expense'&&e.replaces==original(state).id&&state.obligations==old.obligations&&state.unique==old.unique&&state.unallocated==old.unallocated
+      && common(e,original(state),state,old));}
    function ownerShare(owners,i){return owners.concat([{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0}])[i].shareBps;}
    function ownerShape(owners,i){return owners.size()<=i||(owners[i].id is string&&owners[i].name is string&&owners[i].name.size()>0&&owners[i].shareBps is int&&owners[i].shareBps>0&&owners[i].shareBps<=10000);}
    function ownersOK(owners){let padded=owners.concat([{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0},{'shareBps':0}]);return owners is list&&owners.size()>0&&owners.size()<=10&&ownerShape(owners,0)&&ownerShape(owners,1)&&ownerShape(owners,2)&&ownerShape(owners,3)&&ownerShape(owners,4)&&ownerShape(owners,5)&&ownerShape(owners,6)&&ownerShape(owners,7)&&ownerShape(owners,8)&&ownerShape(owners,9)&&(padded[0].shareBps+padded[1].shareBps+padded[2].shareBps+padded[3].shareBps+padded[4].shareBps+padded[5].shareBps+padded[6].shareBps+padded[7].shareBps+padded[8].shareBps+padded[9].shareBps)==10000;}
@@ -105,66 +143,72 @@ service cloud.firestore {
     allow delete: if false;
    }
    function orderPath(id){return /databases/$(database)/documents/stores/$(store)/orders/$(id);}
-   function linkedOrder(e){return e.get('orderId','')=='' || (e.type=='supplier_bill' && get(orderPath(e.orderId)).data.status=='open'
-     && getAfter(orderPath(e.orderId)).data.status=='received' && getAfter(orderPath(e.orderId)).data.billId==e.id
-     && getAfter(orderPath(e.orderId)).data.billAmount==e.amount && getAfter(orderPath(e.orderId)).data.party==e.party);}
+   function linkedOrder(e){return e.get('orderId','')=='' || orderBillLink(e);}
+   function orderBillLink(e){let before=get(orderPath(e.orderId)).data;let after=getAfter(orderPath(e.orderId)).data;return
+     e.type=='supplier_bill'&&(before.status=='open'||(before.status=='received'&&e.get('replaces','')==before.billId))
+     &&after.status=='received'&&after.billId==e.id&&after.billAmount==e.amount&&after.party==e.party;}
    function orderShape(o,id){return o.keys().hasOnly(['id','party','companyName','staffId','staffName','date','amount','notes','status','billId','billAmount','updatedBy','updatedAt'])
      && o.id==id && o.party is string && o.party.size()>0 && o.companyName is string && o.companyName.size()>0
      && o.staffId is string && o.staffId.size()>0 && o.staffName is string && o.staffName.size()>0
      && o.amount is int && o.amount>0 && o.amount<=900000000000 && o.notes is string && o.notes.size()<=2000
      && o.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') && o.updatedBy==request.auth.uid && o.updatedAt==request.time;}
+   function receivedOrder(next,old,id){let bill=getAfter(entryPath(next.billId)).data;return
+     next.diff(old).affectedKeys().hasOnly(['status','billId','billAmount','updatedBy','updatedAt'])
+     && (old.status=='open'||(old.status=='received'&&bill.get('replaces','')==old.billId))
+     && bill.type=='supplier_bill'&&bill.orderId==id&&bill.party==old.party&&bill.amount==next.billAmount&&bill.createdAt==request.time;}
+   function orderUpdate(next,old,id){return
+     access('suppliers','post')&&next.updatedBy==request.auth.uid&&next.updatedAt==request.time && (
+       (old.status=='open'&&next.status in ['open','cancelled']&&next.billId==''&&next.billAmount==0&&orderShape(next,id))
+       || (next.status=='received'&&receivedOrder(next,old,id))
+       || (owner()&&old.status=='received'&&next.status=='open'&&next.billId==''&&next.billAmount==0
+         && next.diff(old).affectedKeys().hasOnly(['status','billId','billAmount','updatedBy','updatedAt'])
+         && getAfter(entryPath(getAfter(entryPath(old.billId)).data.reversedBy)).data.createdAt==request.time));}
    match /orders/{id}{
      allow read: if access('suppliers','read');
-     allow create: if access('suppliers','post') && orderShape(request.resource.data,id) && request.resource.data.status=='open' && request.resource.data.billId=='' && request.resource.data.billAmount==0;
-     allow update: if access('suppliers','post') && orderShape(request.resource.data,id) && (
-       (resource.data.status=='open' && request.resource.data.status in ['open','cancelled'] && request.resource.data.billId=='' && request.resource.data.billAmount==0)
-       || (resource.data.status=='open' && request.resource.data.status=='received'
-         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','billId','billAmount','updatedBy','updatedAt'])
-         && getAfter(entryPath(request.resource.data.billId)).data.type=='supplier_bill' && getAfter(entryPath(request.resource.data.billId)).data.orderId==id
-         && getAfter(entryPath(request.resource.data.billId)).data.party==resource.data.party && getAfter(entryPath(request.resource.data.billId)).data.amount==request.resource.data.billAmount
-         && getAfter(entryPath(request.resource.data.billId)).data.createdAt==request.time)
-       || (owner() && resource.data.status=='received' && request.resource.data.status=='open' && request.resource.data.billId=='' && request.resource.data.billAmount==0
-         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','billId','billAmount','updatedBy','updatedAt'])
-         && getAfter(entryPath(getAfter(entryPath(resource.data.billId)).data.reversedBy)).data.createdAt==request.time));
+     allow create: if access('suppliers','post')&&orderShape(request.resource.data,id)&&request.resource.data.status=='open'&&request.resource.data.billId==''&&request.resource.data.billAmount==0;
+     allow update: if orderUpdate(request.resource.data,resource.data,id);
      allow delete: if false;
    }
    match /profiles/{id}{
     allow read: if access(resource.data.module,'read');
-    allow create: if access(request.resource.data.module,'post') && request.resource.data.id==id && request.resource.data.name is string && request.resource.data.name.size()>0 && request.resource.data.module in ['suppliers','salary','rent','loans','zakat','zakat_companies','people'];
+    allow create: if access(request.resource.data.module,'post') && request.resource.data.id==id && request.resource.data.name is string && request.resource.data.name.size()>0 && request.resource.data.module in ['suppliers','salary','rent','loans','zakat','zakat_companies','people','committee'];
     allow update: if access(resource.data.module,'post') && request.resource.data.module==resource.data.module && request.resource.data.id==id && request.resource.data.name is string && request.resource.data.name.size()>0;
     allow delete: if false;
    }
+   function moduleWrite(next,old,module){let e=getAfter(entryPath(next.lastOperation)).data;return
+     access(module,'post') && next.keys().hasOnly(['balances','obligations','unique','unallocated','lastOperation','lastKind','lastOriginal','lastReversal','operation','correctionState'])
+     && next.lastOperation!=old.lastOperation && !exists(entryPath(next.lastOperation))
+     && e.diff(next.operation).affectedKeys().hasOnly(['createdAt']) && next.operation.module==module
+     && operationOK(next.operation,next,old) && e.createdBy==request.auth.uid && e.createdAt==request.time;}
+   function entryCreate(e,id){let state=getAfter(statePath(e.module)).data;return
+     access(e.module,'post') && e.id==id && e.createdBy==request.auth.uid && e.createdAt==request.time && dayOK(e.date) && linkedOrder(e)
+     && ((e.type!='reversal'&&normalShape(e)&&state.lastOperation==id) || (e.type=='reversal'&&state.lastReversal==id&&reversalShape(e,original(state))));}
+   function originalOrderUpdate(source,id){let order=getAfter(orderPath(source.orderId)).data;return
+     (order.status=='open'&&order.billId=='') || (order.status=='received'&&getAfter(entryPath(order.billId)).data.get('replaces','')==id);}
+   function originalUpdate(next,source,id){let rev=getAfter(entryPath(next.reversedBy)).data;let state=getAfter(statePath(source.module)).data;return
+     owner() && next.diff(source).affectedKeys().hasOnly(['reversedBy']) && !source.keys().hasAny(['reversedBy'])
+     && rev.reference==id && rev.type=='reversal' && rev.createdAt==request.time
+     && (source.get('orderId','')=='' || originalOrderUpdate(source,id))
+     && state.lastOriginal==id && state.lastReversal==next.reversedBy;}
+   function accountUpdate(next,account){let state=getAfter(statePath(next.lastModule)).data;let e=getAfter(entryPath(next.lastOperation)).data;return
+     next.keys().hasOnly(['balance','lastOperation','lastModule'])&&next.balance is int&&account in config().accounts&&access(next.lastModule,'post')
+     && e.createdAt==request.time&&state.lastOperation==next.lastOperation
+     && ((state.lastKind!='correct'&&next.balance==accountBefore(account)+delta(e,zero(),'money:'+account)) || (state.lastKind=='correct'&&next.balance==accountBefore(account)+delta(e,original(state),'money:'+account)));}
    match /modules/{module}{
     allow read: if access(module,'read')||access(module,'post');
-    allow create,update: if access(module,'post') && request.resource.data.keys().hasOnly(['balances','obligations','unique','unallocated','lastOperation','lastKind','lastOriginal','lastReversal','operation'])
-     && request.resource.data.lastOperation!=resource.data.lastOperation && !exists(entryPath(request.resource.data.lastOperation))
-     && getAfter(entryPath(request.resource.data.lastOperation)).data.diff(request.resource.data.operation).affectedKeys().hasOnly(['createdAt'])
-     && request.resource.data.operation.module==module
-     && operationOK(request.resource.data.operation,request.resource.data,resource.data)
-     && getAfter(entryPath(request.resource.data.lastOperation)).data.createdBy==request.auth.uid
-     && getAfter(entryPath(request.resource.data.lastOperation)).data.createdAt==request.time;
+    allow create,update: if moduleWrite(request.resource.data,resource==null?{'balances':{},'obligations':{},'unique':{},'unallocated':{},'lastOperation':'','lastKind':'','lastOriginal':'','lastReversal':''}:resource.data,module);
     allow delete: if false;
    }
    match /entries/{id}{
     allow get: if active() && (resource == null || access(resource.data.module,'read'));
     allow list: if access(resource.data.module,'read');
-    allow create: if access(request.resource.data.module,'post') && request.resource.data.id==id && request.resource.data.createdBy==request.auth.uid && request.resource.data.createdAt==request.time
-     && dayOK(request.resource.data.date) && linkedOrder(request.resource.data)
-     && ((request.resource.data.type!='reversal' && normalShape(request.resource.data) && getAfter(statePath(request.resource.data.module)).data.lastOperation==id)
-       || (request.resource.data.type=='reversal' && getAfter(statePath(request.resource.data.module)).data.lastReversal==id && reversalShape(request.resource.data,original(getAfter(statePath(request.resource.data.module)).data))));
-    allow update: if owner() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reversedBy']) && !resource.data.keys().hasAny(['reversedBy'])
-     && getAfter(entryPath(request.resource.data.reversedBy)).data.reference==id && getAfter(entryPath(request.resource.data.reversedBy)).data.type=='reversal' && getAfter(entryPath(request.resource.data.reversedBy)).data.createdAt==request.time
-     && (resource.data.get('orderId','')=='' || (getAfter(orderPath(resource.data.orderId)).data.status=='open' && getAfter(orderPath(resource.data.orderId)).data.billId==''))
-     && getAfter(statePath(resource.data.module)).data.lastOriginal==id && getAfter(statePath(resource.data.module)).data.lastReversal==request.resource.data.reversedBy;
+    allow create: if entryCreate(request.resource.data,id);
+    allow update: if originalUpdate(request.resource.data,resource.data,id);
     allow delete: if false;
    }
    match /accounts/{account}{
     allow read: if access('cashbook','read')||access('cashbook','post');
-    allow create,update: if active() && request.resource.data.keys().hasOnly(['balance','lastOperation','lastModule']) && request.resource.data.balance is int
-     && account in config().accounts && access(request.resource.data.lastModule,'post')
-     && getAfter(entryPath(request.resource.data.lastOperation)).data.createdAt==request.time
-     && getAfter(statePath(request.resource.data.lastModule)).data.lastOperation==request.resource.data.lastOperation
-     && accountWrite(request.resource.data,account);
+    allow create,update: if accountUpdate(request.resource.data,account);
     allow delete: if false;
    }
    match /control/periods{

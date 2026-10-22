@@ -4,13 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import 'package:uuid/uuid.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../core/ledger.dart';
+import '../core/bilingual.dart';
+import 'localized_text.dart';
+import '../core/committee.dart';
 import 'app_back_scope.dart';
 import 'credential_editing.dart';
+import 'native_credentials.dart';
 import '../core/ownership.dart';
 import '../features/security/app_lock.dart';
 import '../data/app_store.dart';
@@ -22,6 +26,8 @@ part '../features/home/simple_home.dart';
 part '../features/reports/simple_reports.dart';
 part '../features/orders/orders_screen.dart';
 part '../features/profiles/staff_form.dart';
+part '../features/entries/notebook_entry.dart';
+part '../features/committee/committee_screen.dart';
 
 const expenseCategories = [
   'Expense',
@@ -47,6 +53,7 @@ const navy = Color(0xff071943),
     orange = Color(0xffff741b),
     pale = Color(0xffedf4fd);
 const modules = {
+  'committee': 'Installment',
   'orders': 'Orders',
   'suppliers': 'Companies',
   'profiles': 'Profiles',
@@ -59,6 +66,7 @@ const modules = {
   'owner': 'Owner',
 };
 const icons = {
+  'committee': Icons.event_repeat,
   'orders': Icons.shopping_bag_outlined,
   'suppliers': Icons.local_shipping_rounded,
   'profiles': Icons.groups_rounded,
@@ -91,7 +99,7 @@ Future<void> perform(BuildContext c, Future<void> Function() action) async {
   }
 }
 
-Widget big(String s, {double size = 28, Color? color}) => Text(
+Widget big(String s, {double size = 28, Color? color}) => LocalizedText(
   s,
   style: TextStyle(
     fontSize: size,
@@ -106,7 +114,7 @@ Widget pair(String label, String value, {Color? color, bool bold = false}) =>
       child: Row(
         children: [
           Expanded(
-            child: Text(
+            child: LocalizedText(
               label,
               style: TextStyle(
                 fontSize: 15,
@@ -114,12 +122,19 @@ Widget pair(String label, String value, {Color? color, bool bold = false}) =>
               ),
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: bold ? 21 : 17,
-              fontWeight: FontWeight.w700,
-              color: color,
+          const SizedBox(width: 12),
+          Flexible(
+            flex: 2,
+            child: Text(
+              value,
+              textDirection: TextDirection.ltr,
+              textAlign: TextAlign.end,
+              softWrap: true,
+              style: TextStyle(
+                fontSize: bold ? 21 : 17,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
             ),
           ),
         ],
@@ -177,6 +192,7 @@ class Frame extends ConsumerWidget {
     final headingStyle =
         (Theme.of(c).appBarTheme.titleTextStyle ?? const TextStyle()).copyWith(
           fontSize: 24,
+          fontFamilyFallback: const ['NotoArabic', 'Inter'],
         );
     final available = max(
       90.0,
@@ -232,7 +248,7 @@ class Frame extends ConsumerWidget {
                     child: TextButton(
                       onPressed: a.toggleLanguage,
                       child: Text(
-                        a.ur ? 'اردو  |  EN' : 'EN  |  اردو',
+                        a.ur ? 'English' : 'اردو',
                         style: const TextStyle(fontSize: 12),
                       ),
                     ),
@@ -253,7 +269,7 @@ class Frame extends ConsumerWidget {
                         if (a.uploadIssues.isNotEmpty)
                           TextButton(
                             onPressed: () => uploadIssuesDialog(c, a),
-                            child: const Text('Review'),
+                            child: const LocalizedText('Review'),
                           ),
                         TextButton(
                           onPressed: a.syncing
@@ -275,18 +291,20 @@ class Frame extends ConsumerWidget {
                   bottom ??
                   (tab != null
                       ? BottomNavigationBar(
-                          currentIndex: tab!,
+                          currentIndex: tab == 2
+                              ? 1
+                              : tab == 3
+                              ? 2
+                              : 0,
                           type: BottomNavigationBarType.fixed,
                           selectedItemColor: blue,
                           unselectedItemColor: const Color(0xff60718f),
                           selectedFontSize: 11,
                           unselectedFontSize: 11,
-                          onTap: (i) =>
-                              c.go(['/', '/registers', '/reports', '/more'][i]),
+                          onTap: (i) => c.go(['/', '/reports', '/more'][i]),
                           items: [
                             for (final pair in [
                               (Icons.home_rounded, 'Home'),
-                              (Icons.description, 'Registers'),
                               (Icons.bar_chart_rounded, 'Reports'),
                               (Icons.more_horiz, 'More'),
                             ])
@@ -305,49 +323,6 @@ class Frame extends ConsumerWidget {
   }
 }
 
-class RegistersScreen extends ConsumerWidget {
-  const RegistersScreen({super.key});
-  @override
-  Widget build(BuildContext c, WidgetRef ref) {
-    final a = ref.watch(appProvider);
-    return Frame(
-      title: 'Registers',
-      tab: 1,
-      body: ListView(
-        padding: const EdgeInsets.all(17),
-        children: [
-          for (final m in modules.entries)
-            if (a.can(m.key))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Tile(
-                  onTap: () => c.push(
-                    m.key == 'profiles' ? '/profiles' : '/register/${m.key}',
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(icons[m.key], color: blue, size: 30),
-                      const SizedBox(width: 15),
-                      Expanded(
-                        child: Text(
-                          a.tr(m.value),
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right),
-                    ],
-                  ),
-                ),
-              ),
-        ],
-      ),
-    );
-  }
-}
-
 class RegisterScreen extends ConsumerStatefulWidget {
   final String module;
   const RegisterScreen({super.key, required this.module});
@@ -361,6 +336,7 @@ class _RegisterState extends ConsumerState<RegisterScreen> {
   Widget build(BuildContext c) {
     final a = ref.watch(appProvider), module = widget.module;
     if (module == 'orders') return const OrdersScreen();
+    if (module == 'committee') return const CommitteeScreen();
     if (module == 'profiles' || module == 'customers') {
       return const ProfilesScreen();
     }
@@ -376,6 +352,7 @@ class _RegisterState extends ConsumerState<RegisterScreen> {
         a.entries
             .where(
               (e) =>
+                  a.entryVisible(e) &&
                   (e['module'] == module ||
                       (module == 'cashbook' &&
                           (e['effects'] as Json).keys.any(
@@ -439,6 +416,11 @@ class _RegisterState extends ConsumerState<RegisterScreen> {
         padding: const EdgeInsets.all(17),
         children: [
           TextField(
+            autocorrect: false,
+            enableSuggestions: false,
+            enableIMEPersonalizedLearning: false,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
             onChanged: (s) => setState(() => query = s),
             decoration: InputDecoration(
               hintText: a.tr('Search name or reference'),
@@ -473,21 +455,32 @@ class _RegisterState extends ConsumerState<RegisterScreen> {
                               ? 'Net daily sale'
                               : module == 'rent'
                               ? 'Rent paid'
+                              : module == 'salary'
+                              ? 'Remaining salary'
                               : 'Balance',
                         ),
                       ),
                       big(
                         money(
-                          (module == 'sales'
-                                  ? a.netSalesTotal
-                                  : module == 'loans'
-                                  ? loanTotal(a.state['balances'])
-                                  : a.total(prefix)) *
-                              (module == 'sales' ? 1 : sign),
+                          module == 'salary'
+                              ? people.fold<int>(
+                                  0,
+                                  (sum, p) => sum + a.salaryDue(p['id']),
+                                )
+                              : (module == 'sales'
+                                        ? a.netSalesTotal
+                                        : module == 'loans'
+                                        ? loanTotal(a.state['balances'])
+                                        : a.total(prefix)) *
+                                    (module == 'sales' ? 1 : sign),
                         ),
                         size: 33,
                         color: const Color(0xff124ac4),
                       ),
+                      if (module == 'salary')
+                        Text(
+                          'Advance: ${money(people.fold<int>(0, (sum, p) => sum + a.salaryCredit(p['id'])))}',
+                        ),
                     ],
                   ),
                 ),
@@ -588,13 +581,15 @@ class _RegisterState extends ConsumerState<RegisterScreen> {
                                   ? (a.balance('loanAsset:${p['id']}') +
                                             a.balance('loanDebt:${p['id']}'))
                                         .abs()
+                                  : module == 'salary'
+                                  ? a.salaryDue(p['id'])
                                   : a.balance('$prefix${p['id']}') * sign,
                             ),
                           ),
                           if (module == 'salary')
                             pair(
                               a.tr('Advance / credit'),
-                              money(a.balance('salaryAdvance:${p['id']}')),
+                              money(a.salaryCredit(p['id'])),
                             ),
                         ],
                       ),
@@ -618,7 +613,7 @@ class _RegisterState extends ConsumerState<RegisterScreen> {
             OutlinedButton.icon(
               onPressed: () => c.push('/reports?module=$module&party=$party'),
               icon: const Icon(Icons.picture_as_pdf_outlined),
-              label: const Text('Person / company report'),
+              label: const LocalizedText('Person / company report'),
             ),
           const SizedBox(height: 5),
           Row(
@@ -712,6 +707,7 @@ class _RegisterState extends ConsumerState<RegisterScreen> {
 }
 
 Widget entryTile(BuildContext c, AppStore a, Json e) {
+  final reversed = e['reversedBy'] != null || e['type'] == 'reversal';
   final returned = e['type'].toString().contains('return');
   final out =
       (Json.from(e['effects'] ?? {}).entries
@@ -725,7 +721,11 @@ Widget entryTile(BuildContext c, AppStore a, Json e) {
       children: [
         CircleAvatar(
           radius: 17,
-          backgroundColor: returned || out ? orange : green,
+          backgroundColor: reversed
+              ? Colors.red
+              : returned || out
+              ? orange
+              : green,
           child: Icon(
             returned
                 ? Icons.undo
@@ -762,7 +762,11 @@ Widget entryTile(BuildContext c, AppStore a, Json e) {
           children: [
             Text(
               money(e['amount']),
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: reversed ? Colors.red : null,
+              ),
             ),
             if (e['syncStatus'] == 'Pending upload')
               const Icon(
@@ -788,7 +792,7 @@ Widget entryTile(BuildContext c, AppStore a, Json e) {
             if (e['reversedBy'] != null)
               Text(
                 a.tr('Reversed'),
-                style: const TextStyle(color: orange, fontSize: 11),
+                style: const TextStyle(color: Colors.red, fontSize: 11),
               ),
           ],
         ),
@@ -805,63 +809,21 @@ Future<void> chooseType(
   String module, {
   String party = '',
 }) async {
-  final choices = a.ledger.types.entries
-      .where(
-        (e) =>
-            e.value['module'] == module &&
-            e.value['retired'] != true &&
-            e.value['menuHidden'] != true &&
-            (e.value['owner'] != true || a.owner),
-      )
-      .toList();
-  if (choices.length == 1 || module == 'sales' || module == 'expenses') {
-    final type = module == 'sales'
-        ? 'daily_sales'
-        : module == 'expenses'
-        ? 'expense'
-        : choices.single.key;
-    c.push(
-      '/entry/$type${party.isEmpty ? '' : '?party=${Uri.encodeComponent(party)}'}',
-    );
-    return;
-  }
-  final result = await showModalBottomSheet<String>(
-    context: c,
-    isScrollControlled: true,
-    builder: (c) => SafeArea(
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 20),
-            Text(
-              a.tr('Add entry'),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
-            ),
-            for (final t in a.ledger.types.entries.where(
-              (e) =>
-                  e.value['module'] == module &&
-                  e.value['retired'] != true &&
-                  e.value['menuHidden'] != true &&
-                  (e.value['owner'] != true || a.owner),
-            ))
-              ListTile(
-                title: Text(a.typeLabel(t.key)),
-                leading: Icon(icons[module], color: blue),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.pop(c, t.key),
-              ),
-            const SizedBox(height: 15),
-          ],
-        ),
-      ),
-    ),
+  final type = switch (module) {
+    'sales' => 'daily_sale_cash',
+    'expenses' => 'expense',
+    'suppliers' => 'supplier_bill',
+    'salary' => 'salary_payment',
+    'loans' => 'loan_lend',
+    'committee' => 'committee_pay',
+    'zakat' => 'zakat',
+    'owner' => 'capital',
+    'cashbook' => 'opening_cash',
+    _ => '',
+  };
+  c.push(
+    '/entry?type=$type${party.isEmpty ? '' : '&party=${Uri.encodeComponent(party)}'}',
   );
-  if (result != null && c.mounted) {
-    c.push(
-      '/entry/$result${party.isEmpty ? '' : '?party=${Uri.encodeComponent(party)}'}',
-    );
-  }
 }
 
 Future<void> uploadIssuesDialog(BuildContext c, AppStore a) async {
@@ -869,7 +831,7 @@ Future<void> uploadIssuesDialog(BuildContext c, AppStore a) async {
     context: c,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, set) => AlertDialog(
-        title: const Text('Entries to review'),
+        title: const LocalizedText('Entries to review'),
         content: SizedBox(
           width: 420,
           child: SingleChildScrollView(
@@ -896,15 +858,17 @@ Future<void> uploadIssuesDialog(BuildContext c, AppStore a) async {
                         final ok = await showDialog<bool>(
                           context: ctx,
                           builder: (d) => AlertDialog(
-                            title: const Text('Discard rejected change?'),
+                            title: const LocalizedText(
+                              'Discard rejected change?',
+                            ),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(d, false),
-                                child: const Text('Cancel'),
+                                child: const LocalizedText('Cancel'),
                               ),
                               FilledButton(
                                 onPressed: () => Navigator.pop(d, true),
-                                child: const Text('Discard'),
+                                child: const LocalizedText('Discard'),
                               ),
                             ],
                           ),
@@ -927,14 +891,14 @@ Future<void> uploadIssuesDialog(BuildContext c, AppStore a) async {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+            child: const LocalizedText('Close'),
           ),
           FilledButton(
             onPressed: () async {
               await a.retryUploads();
               if (ctx.mounted) Navigator.pop(ctx);
             },
-            child: const Text('Retry'),
+            child: const LocalizedText('Retry'),
           ),
         ],
       ),
@@ -943,30 +907,64 @@ Future<void> uploadIssuesDialog(BuildContext c, AppStore a) async {
 }
 
 Future<void> entryDetails(BuildContext c, AppStore a, Json e) async {
+  final reversed = e['reversedBy'] != null, reversal = e['type'] == 'reversal';
+  final original = reversal
+      ? a.entries.where((x) => x['id'] == e['reference']).firstOrNull
+      : null;
+  final source = original ?? e;
   await showModalBottomSheet(
     context: c,
     isScrollControlled: true,
     builder: (ctx) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(ctx).height * .86,
+        ),
         child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              big(a.typeLabel(e['type']), size: 24),
-              const SizedBox(height: 12),
-              big(money(e['amount']), color: blue),
-              pair(a.tr('Date'), dateLabel(e['date'])),
-              pair(a.tr('Reference'), e['reference'] ?? ''),
-              Text(a.entryName(e)),
-              Text(e['notes'] ?? e['reason'] ?? ''),
-              const Divider(),
-              Text(
-                '${a.tr('Audit history')}: ${e['createdBy']}\n${e['createdAt']}\nID: ${e['id']}',
-                style: const TextStyle(fontSize: 11),
+              big(
+                reversal
+                    ? 'Reversal · ${a.typeLabel(source['type'])}'
+                    : a.typeLabel(e['type']),
+                size: 24,
               ),
-              const SizedBox(height: 14),
+              if (reversed || reversal)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Text(
+                    reversal ? 'Reversal' : 'Reversed',
+                    style: const TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              big(
+                money(e['amount']),
+                color: reversed || reversal ? Colors.red : blue,
+              ),
+              if (a.entryName(source).isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: big(a.entryName(source), size: 20),
+                ),
+              pair(a.tr('Date'), dateLabel(e['date'])),
+              if ((source['reference'] ?? '').toString().isNotEmpty &&
+                  source['type'] != 'reversal')
+                pair(
+                  source['type'] == 'supplier_bill'
+                      ? 'Bill no.'
+                      : a.tr('Reference'),
+                  '${source['reference']}',
+                ),
+              if ((e['notes'] ?? '').toString().isNotEmpty)
+                Text('${e['notes']}'),
+              const Divider(),
               OutlinedButton.icon(
                 onPressed: () => exportReport(
                   a,
@@ -979,29 +977,62 @@ Future<void> entryDetails(BuildContext c, AppStore a, Json e) async {
                 icon: const Icon(Icons.ios_share),
                 label: Text(a.tr('Receipt')),
               ),
-              if (a.owner && e['type'] == 'expense' && e['reversedBy'] == null)
+              if (a.owner && !reversed && !reversal) ...[
                 TextButton.icon(
                   onPressed: () {
                     Navigator.pop(ctx);
-                    editExpenseDialog(c, a, e);
+                    editEntryDialog(c, a, e);
                   },
                   icon: const Icon(Icons.edit_outlined),
-                  label: Text(a.tr('Edit expense')),
+                  label: const LocalizedText('Edit'),
                 ),
-              if (a.owner && e['reversedBy'] == null && e['type'] != 'reversal')
                 TextButton.icon(
                   onPressed: () async {
                     Navigator.pop(ctx);
                     await reverseDialog(c, a, e);
                   },
-                  icon: const Icon(Icons.undo, color: orange),
-                  label: Text(
-                    a.tr(
-                      e['type'] == 'expense'
-                          ? 'Remove expense'
-                          : 'Remove / reverse entry',
-                    ),
+                  icon: const Icon(Icons.undo, color: Colors.red),
+                  label: const LocalizedText(
+                    'Remove / reverse entry',
+                    style: TextStyle(color: Colors.red),
                   ),
+                ),
+              ],
+              if ((e['replaces'] ?? e['editedFrom']) != null)
+                TextButton(
+                  onPressed: () {
+                    final previous = a.entries
+                        .where(
+                          (x) => x['id'] == (e['replaces'] ?? e['editedFrom']),
+                        )
+                        .firstOrNull;
+                    if (previous != null) {
+                      Navigator.pop(ctx);
+                      entryDetails(c, a, previous);
+                    }
+                  },
+                  child: const LocalizedText('Previous version'),
+                ),
+              if (reversal && original != null)
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    entryDetails(c, a, original);
+                  },
+                  child: const LocalizedText('Original entry'),
+                ),
+              if (reversed)
+                TextButton(
+                  onPressed: () {
+                    final rev = a.entries
+                        .where((x) => x['id'] == e['reversedBy'])
+                        .firstOrNull;
+                    if (rev != null) {
+                      Navigator.pop(ctx);
+                      entryDetails(c, a, rev);
+                    }
+                  },
+                  child: const LocalizedText('View reversal'),
                 ),
             ],
           ),
@@ -1009,6 +1040,199 @@ Future<void> entryDetails(BuildContext c, AppStore a, Json e) async {
       ),
     ),
   );
+}
+
+Future<void> editEntryDialog(BuildContext c, AppStore a, Json original) async {
+  final amount = TextEditingController(text: '${original['amount'] / 100}');
+  final reference = TextEditingController(
+    text: '${original['reference'] ?? ''}',
+  );
+  final notes = TextEditingController(text: '${original['notes'] ?? ''}');
+  var date = original['date'] as String,
+      account = original['account'] as String? ?? 'cash';
+  var party = original['party'] as String? ?? '',
+      category = original['category'] as String? ?? 'Expense';
+  String? error;
+  bool saving = false;
+  await showSafeDialog(
+    context: c,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, set) => AlertDialog(
+        title: const LocalizedText('Edit entry'),
+        content: SizedBox(
+          width: 380,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  key: const Key('edit-entry-amount'),
+                  controller: amount,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
+                  smartDashesType: SmartDashesType.disabled,
+                  smartQuotesType: SmartQuotesType.disabled,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: a.tr('Amount'),
+                    prefixText: 'Rs ',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.calendar_month, color: blue),
+                  title: Text(dateLabel(date)),
+                  trailing: const Icon(Icons.expand_more),
+                  onTap: () async {
+                    final d = await showDatePicker(
+                      context: ctx,
+                      initialDate: DateTime.parse(date),
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime.parse(today()),
+                    );
+                    if (d != null) {
+                      set(() => date = d.toIso8601String().substring(0, 10));
+                    }
+                  },
+                ),
+                if (party.isNotEmpty && original['module'] != 'owner')
+                  DropdownButtonFormField<String>(
+                    initialValue: party,
+                    isExpanded: true,
+                    decoration: InputDecoration(labelText: a.tr('Name')),
+                    items: [
+                      for (final p in a.profiles.where(
+                        (p) =>
+                            p['module'] == original['module'] ||
+                            p['id'] == party,
+                      ))
+                        DropdownMenuItem(
+                          value: p['id'] as String,
+                          child: Text(p['name']),
+                        ),
+                    ],
+                    onChanged: (v) => party = v!,
+                  ),
+                const SizedBox(height: 14),
+                if ((original['effects'] as Json).keys.any(
+                  (k) => k.startsWith('money:'),
+                ))
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    initialValue: account,
+                    decoration: InputDecoration(
+                      labelText: a.tr('Payment account'),
+                    ),
+                    items: [
+                      for (final acc in a.state['accounts'])
+                        DropdownMenuItem(
+                          value: acc as String,
+                          child: Text(acc),
+                        ),
+                    ],
+                    onChanged: (v) => account = v!,
+                  ),
+                if (original['type'] == 'expense') ...[
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    initialValue: category,
+                    decoration: InputDecoration(labelText: a.tr('Category')),
+                    items: [
+                      for (final cat in {...expenseCategories, category})
+                        DropdownMenuItem(value: cat, child: Text(cat)),
+                    ],
+                    onChanged: (v) => category = v!,
+                  ),
+                ],
+                const SizedBox(height: 14),
+                TextField(
+                  controller: reference,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
+                  smartDashesType: SmartDashesType.disabled,
+                  smartQuotesType: SmartQuotesType.disabled,
+                  decoration: InputDecoration(
+                    labelText: original['type'] == 'supplier_bill'
+                        ? 'Bill no.'
+                        : 'Reference',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: notes,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
+                  smartDashesType: SmartDashesType.disabled,
+                  smartQuotesType: SmartQuotesType.disabled,
+                  decoration: InputDecoration(labelText: a.tr('Notes')),
+                ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14),
+                    child: Text(
+                      error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: saving ? null : () => Navigator.pop(ctx),
+            child: const LocalizedText('Cancel'),
+          ),
+          FilledButton(
+            onPressed: saving
+                ? null
+                : () async {
+                    set(() {
+                      saving = true;
+                      error = null;
+                    });
+                    try {
+                      final replacement = a.replacementInput(
+                        original,
+                        amount: paisa(amount.text),
+                        date: date,
+                        reference: reference.text.trim(),
+                        notes: notes.text,
+                        account: account,
+                        party: party,
+                        category: category,
+                      );
+                      await a.correctExpense(
+                        original,
+                        replacement,
+                        'Entry edited',
+                      );
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        set(() {
+                          saving = false;
+                          error = e.toString().replaceFirst('Bad state: ', '');
+                        });
+                      }
+                    }
+                  },
+            child: const LocalizedText('Save'),
+          ),
+        ],
+      ),
+    ),
+  );
+  amount.dispose();
+  reference.dispose();
+  notes.dispose();
 }
 
 Future<T?> showSafeDialog<T>({
@@ -1038,15 +1262,23 @@ Future<String?> inputDialog(
     context: c,
     builder: (ctx) => AlertDialog(
       title: Text(label),
-      content: TextField(controller: controller, autofocus: true),
+      content: TextField(
+        autocorrect: false,
+        enableSuggestions: false,
+        enableIMEPersonalizedLearning: false,
+        smartDashesType: SmartDashesType.disabled,
+        smartQuotesType: SmartQuotesType.disabled,
+        controller: controller,
+        autofocus: true,
+      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx),
-          child: const Text('Cancel'),
+          child: const LocalizedText('Cancel'),
         ),
         FilledButton(
           onPressed: () => Navigator.pop(ctx, controller.text),
-          child: const Text('Save'),
+          child: const LocalizedText('Save'),
         ),
       ],
     ),
@@ -1126,9 +1358,6 @@ class _EntryState extends ConsumerState<EntryScreen> {
     if (widget.type == 'supplier_bill' &&
         fields['reference']!.text.trim().isEmpty) {
       final a = ref.read(appProvider);
-      if (party.isEmpty && a.people('suppliers').isNotEmpty) {
-        party = a.people('suppliers').first['id'];
-      }
       fields['reference']!.text = a.nextBillNumber(party);
     }
     if (d != null) {
@@ -1179,6 +1408,11 @@ class _EntryState extends ConsumerState<EntryScreen> {
         Text(a.tr(label), style: const TextStyle(fontSize: 15)),
         const SizedBox(height: 7),
         TextFormField(
+          autocorrect: false,
+          enableSuggestions: false,
+          enableIMEPersonalizedLearning: false,
+          smartDashesType: SmartDashesType.disabled,
+          smartQuotesType: SmartQuotesType.disabled,
           key: ValueKey('entry-$key'),
           controller: fields[key],
           keyboardType: amount
@@ -1229,6 +1463,10 @@ class _EntryState extends ConsumerState<EntryScreen> {
         DropdownButtonFormField<String>(
           initialValue: items.any((x) => x.$1 == value) ? value : null,
           isExpanded: true,
+          hint: Text(a.tr(label)),
+          validator: label.startsWith('Select ')
+              ? (v) => (v == null || v.isEmpty) ? a.tr(label) : null
+              : null,
           decoration: InputDecoration(
             prefixIcon: icon == null
                 ? null
@@ -1264,14 +1502,15 @@ class _EntryState extends ConsumerState<EntryScreen> {
       throw StateError('Amount exceeds remaining balance');
     }
     if (type['allocate'] == true) {
-      final rows = widget.type == 'salary_payment' && advance
-          ? <Json>[]
-          : a.allocateOldest(
-              type['module'],
-              party,
-              val('amount'),
-              allowExcess: advance || type['creditReturn'] == true,
-            );
+      final rows = a.allocateOldest(
+        type['module'],
+        party,
+        val('amount'),
+        allowExcess:
+            advance ||
+            widget.type == 'salary_payment' ||
+            type['creditReturn'] == true,
+      );
       for (final c in allocations.values) {
         c.dispose();
       }
@@ -1285,9 +1524,7 @@ class _EntryState extends ConsumerState<EntryScreen> {
     final x = <String, dynamic>{
       'id': id,
       if (widget.draft?['orderId'] != null) 'orderId': widget.draft!['orderId'],
-      'type': widget.type == 'salary_payment' && advance
-          ? 'salary_advance'
-          : widget.type,
+      'type': widget.type,
       'date': date,
       'party': party,
       'account': account,
@@ -1296,7 +1533,7 @@ class _EntryState extends ConsumerState<EntryScreen> {
       'amount': val('amount'),
       'reference': fields['reference']!.text.trim(),
       'notes': fields['notes']!.text.trim(),
-      'allowAdvance': advance,
+      'allowAdvance': advance || widget.type == 'salary_payment',
       'allocations': [
         for (final e
             in (widget.type == 'salary_payment' && advance
@@ -1385,7 +1622,13 @@ class _EntryState extends ConsumerState<EntryScreen> {
         if (mounted) toast(context, a.tr('Draft saved locally'));
         return;
       }
-      final preview = a.ledger.post(a.state, x)['entry'] as Json;
+      a.previewEntry(x);
+      final preview = widget.type == 'salary_payment'
+          ? {
+              ...x,
+              'effects': {'money:$account': -x['amount']},
+            }
+          : a.ledger.post(a.state, x)['entry'] as Json;
       final ok = await showDialog<bool>(
         context: context,
         builder: (c) => AlertDialog(
@@ -1455,7 +1698,6 @@ class _EntryState extends ConsumerState<EntryScreen> {
     final people = a.people(
       widget.type == 'daily_sales' ? 'customers' : module,
     );
-    if (party.isEmpty && people.isNotEmpty) party = people.first['id'];
     final requiresParty =
         ('${t['debit']}${t['credit']}'.contains('{party}') ||
             t['partyRequired'] == true) ||
@@ -1502,10 +1744,16 @@ class _EntryState extends ConsumerState<EntryScreen> {
                   ),
                 ),
               ),
-            if (requiresParty && (!isPay || people.length != 1))
+            if (requiresParty)
               select(
                 a,
-                'Select person',
+                module == 'suppliers'
+                    ? 'Select company'
+                    : module == 'salary'
+                    ? 'Select staff'
+                    : module == 'owner'
+                    ? 'Select owner'
+                    : 'Select person',
                 party,
                 [
                   for (final p in people)
@@ -1564,18 +1812,23 @@ class _EntryState extends ConsumerState<EntryScreen> {
                   children: [
                     pair(
                       'Remaining salary',
-                      money(-a.balance('salary:$party')),
+                      money(a.salaryDue(party)),
                       bold: true,
                     ),
-                    pair('Advance', money(a.balance('salaryAdvance:$party'))),
+                    pair('Advance', money(a.salaryCredit(party))),
                   ],
                 ),
               ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Pay advance'),
-                value: advance,
-                onChanged: (v) => setState(() => advance = v),
+              pair(
+                'Remaining salary after payment',
+                money(max(0, a.salaryDue(party) - previewAmount())),
+              ),
+              pair(
+                'Advance after payment',
+                money(
+                  a.salaryCredit(party) +
+                      max(0, previewAmount() - a.salaryDue(party)),
+                ),
               ),
             ],
             if (!['daily_sales', 'salary_accrual'].contains(widget.type))
@@ -1651,7 +1904,7 @@ class _EntryState extends ConsumerState<EntryScreen> {
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Pay advance / extra'),
+                title: const LocalizedText('Pay advance / extra'),
                 value: advance,
                 onChanged: (v) => setState(() => advance = v),
               ),
@@ -1744,6 +1997,11 @@ class _EntryState extends ConsumerState<EntryScreen> {
                     SizedBox(
                       width: 110,
                       child: TextFormField(
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        enableIMEPersonalizedLearning: false,
+                        smartDashesType: SmartDashesType.disabled,
+                        smartQuotesType: SmartQuotesType.disabled,
                         initialValue: row['text'],
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
@@ -1809,7 +2067,12 @@ class DraftsScreen extends ConsumerWidget {
         children: [
           const SizedBox(height: 15),
           if (a.drafts.isEmpty) Text(a.tr('No entries yet')),
-          for (final d in a.drafts)
+          for (final d
+              in ([...a.drafts]..sort(
+                (a, b) => '${b['date']} ${b['updatedAt'] ?? ''}'.compareTo(
+                  '${a['date']} ${a['updatedAt'] ?? ''}',
+                ),
+              )))
             Card(
               child: ListTile(
                 title: Text(a.typeLabel(d['type'])),
@@ -1861,12 +2124,22 @@ class _CloseState extends ConsumerState<CloseScreen> {
           ),
           const SizedBox(height: 20),
           TextField(
+            autocorrect: false,
+            enableSuggestions: false,
+            enableIMEPersonalizedLearning: false,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
             controller: counted,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(labelText: a.tr('Counted cash')),
           ),
           const SizedBox(height: 20),
           TextField(
+            autocorrect: false,
+            enableSuggestions: false,
+            enableIMEPersonalizedLearning: false,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
             controller: reason,
             decoration: InputDecoration(
               labelText: a.tr('Difference explanation'),
@@ -1880,7 +2153,9 @@ class _CloseState extends ConsumerState<CloseScreen> {
             ),
             child: Text(a.tr('Close day')),
           ),
-          for (final day in (a.state['closed'] as Json).entries)
+          for (final day
+              in ((a.state['closed'] as Json).entries.toList()
+                ..sort((a, b) => b.key.compareTo(a.key))))
             ListTile(
               title: Text(day.key),
               subtitle: Text(
@@ -1902,163 +2177,347 @@ class MoreScreen extends ConsumerWidget {
       title: 'More',
       tab: 3,
       body: ListView(
-        padding: const EdgeInsets.all(17),
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
         children: [
-          Tile(
-            color: a.dark ? null : pale,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xff0068ff), Color(0xff003ca8)],
+              ),
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(
+                  color: blue.withValues(alpha: .18),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
               children: [
-                big(a.settings['name'] ?? '', size: 23),
-                Text(
-                  a.live
-                      ? '${a.storeId} · ${a.member['role']}'
-                      : '${a.tr('Demo mode')} · ${a.tr('Local synthetic data')}',
+                Container(
+                  padding: const EdgeInsets.all(13),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .17),
+                    borderRadius: BorderRadius.circular(17),
+                  ),
+                  child: const Icon(
+                    Icons.local_pharmacy_rounded,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        a.settings['name'] ?? 'Pharmacy Hisab',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 23,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.verified_user_outlined,
+                            size: 15,
+                            color: Colors.white70,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              a.tr(
+                                a.live
+                                    ? '${a.member['role'] ?? 'staff'}'
+                                    : 'Demo mode',
+                              ),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 18),
-          SwitchListTile(
-            title: Text(a.tr('Dark mode')),
-            value: a.dark,
-            onChanged: (_) => a.toggleDark(),
-          ),
-          SwitchListTile(
-            title: Text(a.tr('Language')),
-            subtitle: const Text('English / اردو'),
-            value: a.ur,
-            onChanged: (_) => a.toggleLanguage(),
+          _MoreGroup(
+            title: a.ur ? 'ترجیحات' : 'Preferences',
+            children: [
+              _MoreRow(
+                leading: const Icon(Icons.dark_mode_outlined),
+                title: Text(a.tr('Dark mode')),
+                trailing: Switch(
+                  value: a.dark,
+                  onChanged: (_) => a.toggleDark(),
+                ),
+                onTap: () => a.toggleDark(),
+              ),
+              _MoreRow(
+                leading: const Icon(Icons.translate_rounded),
+                title: Text(a.tr('Language')),
+                subtitle: const LocalizedText('English'),
+                trailing: Switch(
+                  value: a.ur,
+                  onChanged: (_) => a.toggleLanguage(),
+                ),
+                onTap: () => a.toggleLanguage(),
+              ),
+            ],
           ),
           if (a.owner)
-            ListTile(
-              leading: const Icon(Icons.storefront),
-              title: Text(a.tr('Pharmacy name')),
-              subtitle: Text(a.settings['name'] ?? ''),
-              onTap: () async {
-                final s = await inputDialog(
-                  c,
-                  a.tr('Pharmacy name'),
-                  value: a.settings['name'],
-                );
-                if (s != null && s.isNotEmpty && c.mounted) {
-                  await perform(
-                    c,
-                    () => a.saveSettings({...a.settings, 'name': s}),
-                  );
-                }
-              },
+            _MoreGroup(
+              title: a.ur ? 'فارمیسی' : 'Pharmacy',
+              children: [
+                if (a.owner)
+                  _MoreRow(
+                    leading: const Icon(Icons.storefront),
+                    title: Text(a.tr('Pharmacy name')),
+                    subtitle: Text(a.settings['name'] ?? ''),
+                    onTap: () async {
+                      final s = await inputDialog(
+                        c,
+                        a.tr('Pharmacy name'),
+                        value: a.settings['name'],
+                      );
+                      if (s != null && s.isNotEmpty && c.mounted) {
+                        await perform(
+                          c,
+                          () => a.saveSettings({...a.settings, 'name': s}),
+                        );
+                      }
+                    },
+                  ),
+                if (a.owner)
+                  _MoreRow(
+                    leading: const Icon(Icons.volunteer_activism),
+                    title: Text(a.tr('Annual zakat target')),
+                    onTap: () async {
+                      final s = await inputDialog(
+                        c,
+                        a.tr('Annual zakat target'),
+                      );
+                      if (s != null && c.mounted) {
+                        await perform(
+                          c,
+                          () => a.saveSettings({
+                            ...a.settings,
+                            'zakatTarget': paisa(s),
+                          }),
+                        );
+                      }
+                    },
+                  ),
+                if (a.owner)
+                  _MoreRow(
+                    leading: const Icon(Icons.account_balance),
+                    title: Text(a.tr('Payment account')),
+                    subtitle: Text((a.state['accounts'] as List).join(', ')),
+                    onTap: () async {
+                      final s = await inputDialog(c, a.tr('Payment account'));
+                      if (s != null &&
+                          RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(s) &&
+                          c.mounted) {
+                        await perform(
+                          c,
+                          () => a.saveSettings({
+                            ...a.settings,
+                            'accounts': <String>{
+                              ...List<String>.from(a.state['accounts']),
+                              s,
+                            }.toList(),
+                          }),
+                        );
+                      }
+                    },
+                  ),
+              ],
             ),
-          if (a.owner)
-            ListTile(
-              leading: const Icon(Icons.volunteer_activism),
-              title: Text(a.tr('Annual zakat target')),
-              onTap: () async {
-                final s = await inputDialog(c, a.tr('Annual zakat target'));
-                if (s != null && c.mounted) {
-                  await perform(
-                    c,
-                    () => a.saveSettings({
-                      ...a.settings,
-                      'zakatTarget': paisa(s),
-                    }),
-                  );
-                }
-              },
-            ),
-          if (a.owner)
-            ListTile(
-              leading: const Icon(Icons.account_balance),
-              title: Text(a.tr('Payment account')),
-              subtitle: Text((a.state['accounts'] as List).join(', ')),
-              onTap: () async {
-                final s = await inputDialog(c, a.tr('Payment account'));
-                if (s != null &&
-                    RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(s) &&
-                    c.mounted) {
-                  await perform(
-                    c,
-                    () => a.saveSettings({
-                      ...a.settings,
-                      'accounts': <String>{
-                        ...List<String>.from(a.state['accounts']),
-                        s,
-                      }.toList(),
-                    }),
-                  );
-                }
-              },
-            ),
-          ListTile(
-            leading: const Icon(Icons.recycling),
-            title: Text(a.tr('Recycle bin')),
-            onTap: () => c.push('/recycle-bin'),
+          _MoreGroup(
+            title: a.ur ? 'ریکارڈ' : 'Records',
+            children: [
+              _MoreRow(
+                leading: const Icon(Icons.recycling),
+                title: Text(a.tr('Recycle bin')),
+                onTap: () => c.push('/recycle-bin'),
+              ),
+              _MoreRow(
+                leading: const Icon(Icons.save_outlined),
+                title: Text(a.tr('Offline drafts')),
+                trailing: Text('${a.drafts.length}'),
+                onTap: () => c.push('/drafts'),
+              ),
+              if (a.canPost('cashbook'))
+                _MoreRow(
+                  leading: const Icon(Icons.lock_clock),
+                  title: Text(a.tr('Daily close')),
+                  onTap: () => c.push('/close'),
+                ),
+              _MoreRow(
+                leading: const Icon(Icons.history),
+                title: Text(a.tr('Audit history')),
+                onTap: () => c.go('/reports'),
+              ),
+              if (a.live && a.owner)
+                _MoreRow(
+                  leading: const Icon(Icons.manage_accounts),
+                  title: Text(a.tr('User access')),
+                  onTap: () => memberDialog(c, a),
+                ),
+            ],
           ),
-          ListTile(
-            leading: const Icon(Icons.save_outlined),
-            title: Text(a.tr('Offline drafts')),
-            trailing: Text('${a.drafts.length}'),
-            onTap: () => c.push('/drafts'),
+          _MoreGroup(
+            title: a.ur ? 'سیکیورٹی اور رسائی' : 'Security & access',
+            children: [
+              if (a.owner)
+                _MoreRow(
+                  leading: const Icon(Icons.pie_chart),
+                  title: Text(a.tr('Owners & shares')),
+                  onTap: () => c.push('/owners'),
+                ),
+              _MoreRow(
+                leading: const Icon(Icons.fingerprint),
+                title: Text(a.tr('PIN & fingerprint')),
+                onTap: () async {
+                  final lock = ref.read(appLockProvider);
+                  if (!lock.enabled) {
+                    if (!a.live) {
+                      await a.prefs.setBool('demo-lock-enabled', true);
+                    }
+                    await lock.bind(
+                      a.live ? FirebaseAuth.instance.currentUser!.uid : 'demo',
+                    );
+                  } else if (c.mounted) {
+                    c.push('/security');
+                  }
+                },
+              ),
+              if (ref.watch(appLockProvider).enabled)
+                _MoreRow(
+                  leading: const Icon(Icons.lock_outline),
+                  title: Text(a.tr('Lock app')),
+                  onTap: () => ref.read(appLockProvider).lock(),
+                ),
+              if (a.live)
+                _MoreRow(
+                  leading: const Icon(Icons.logout),
+                  title: Text(a.tr('Sign out')),
+                  onTap: () async {
+                    ref.read(appLockProvider).clearSession();
+                    await a.signOut();
+                  },
+                ),
+            ],
           ),
-          if (a.canPost('cashbook'))
-            ListTile(
-              leading: const Icon(Icons.lock_clock),
-              title: Text(a.tr('Daily close')),
-              onTap: () => c.push('/close'),
-            ),
-          ListTile(
-            leading: const Icon(Icons.history),
-            title: Text(a.tr('Audit history')),
-            onTap: () => c.go('/reports'),
-          ),
-          if (a.live && a.owner)
-            ListTile(
-              leading: const Icon(Icons.manage_accounts),
-              title: Text(a.tr('User access')),
-              onTap: () => memberDialog(c, a),
-            ),
-          const Divider(),
-          if (a.owner)
-            ListTile(
-              leading: const Icon(Icons.pie_chart),
-              title: Text(a.tr('Owners & shares')),
-              onTap: () => c.push('/owners'),
-            ),
-          ListTile(
-            leading: const Icon(Icons.fingerprint),
-            title: Text(a.tr('PIN & fingerprint')),
-            onTap: () async {
-              final lock = ref.read(appLockProvider);
-              if (!lock.enabled) {
-                if (!a.live) await a.prefs.setBool('demo-lock-enabled', true);
-                await lock.bind(
-                  a.live ? FirebaseAuth.instance.currentUser!.uid : 'demo',
-                );
-              } else if (c.mounted) {
-                c.push('/security');
-              }
-            },
-          ),
-          if (ref.watch(appLockProvider).enabled)
-            ListTile(
-              leading: const Icon(Icons.lock_outline),
-              title: Text(a.tr('Lock app')),
-              onTap: () => ref.read(appLockProvider).lock(),
-            ),
-          if (a.live)
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: Text(a.tr('Sign out')),
-              onTap: () async {
-                ref.read(appLockProvider).clearSession();
-                await a.signOut();
-              },
-            ),
-          const SizedBox(height: 20),
         ],
       ),
     );
   }
+}
+
+class _MoreGroup extends StatelessWidget {
+  const _MoreGroup({required this.title, required this.children});
+  final String title;
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(5, 25, 5, 10),
+        child: Text(
+          title,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: Theme.of(
+              context,
+            ).colorScheme.outlineVariant.withValues(alpha: .55),
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: Column(
+            children: [
+              for (var i = 0; i < children.length; i++) ...[
+                if (i > 0) const Divider(height: 1, indent: 70, endIndent: 16),
+                children[i],
+              ],
+            ],
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+class _MoreRow extends StatelessWidget {
+  const _MoreRow({
+    required this.leading,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+  });
+  final Widget leading, title;
+  final Widget? subtitle, trailing;
+  final VoidCallback? onTap;
+  @override
+  Widget build(BuildContext context) => ListTile(
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+    minVerticalPadding: 12,
+    leading: Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: blue.withValues(
+          alpha: Theme.of(context).brightness == Brightness.dark ? .20 : .08,
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: IconTheme(
+        data: const IconThemeData(color: blue, size: 22),
+        child: Center(child: leading),
+      ),
+    ),
+    title: DefaultTextStyle.merge(
+      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      child: title,
+    ),
+    subtitle: subtitle == null
+        ? null
+        : Padding(padding: const EdgeInsets.only(top: 4), child: subtitle!),
+    trailing:
+        trailing ??
+        const Icon(
+          Icons.chevron_right_rounded,
+          size: 21,
+          color: Color(0xff8390aa),
+        ),
+    onTap: onTap,
+  );
 }
 
 Future<void> memberDialog(BuildContext c, AppStore a) async {
@@ -2075,6 +2534,11 @@ Future<void> memberDialog(BuildContext c, AppStore a) async {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
+                autocorrect: false,
+                enableSuggestions: false,
+                enableIMEPersonalizedLearning: false,
+                smartDashesType: SmartDashesType.disabled,
+                smartQuotesType: SmartQuotesType.disabled,
                 controller: uid,
                 decoration: InputDecoration(labelText: a.tr('User UID')),
               ),
@@ -2083,11 +2547,16 @@ Future<void> memberDialog(BuildContext c, AppStore a) async {
                 isExpanded: true,
                 items: [
                   for (final s in ['staff', 'manager', 'owner'])
-                    DropdownMenuItem(value: s, child: Text(s)),
+                    DropdownMenuItem(value: s, child: Text(a.tr(s))),
                 ],
                 onChanged: (s) => set(() => role = s!),
               ),
               TextField(
+                autocorrect: false,
+                enableSuggestions: false,
+                enableIMEPersonalizedLearning: false,
+                smartDashesType: SmartDashesType.disabled,
+                smartQuotesType: SmartQuotesType.disabled,
                 controller: permissions,
                 decoration: InputDecoration(
                   labelText: a.tr('Permissions'),
@@ -2139,16 +2608,26 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginState extends ConsumerState<LoginScreen> {
   final email = TextEditingController(text: 'mudakkirafridi@gmail.com'),
-      password = TextEditingController();
+      password = TextEditingController(),
+      newPin = TextEditingController(),
+      confirmPin = TextEditingController();
   bool loading = false, showPassword = false;
+  bool pinMode = false, useFingerprint = false;
+  String? verifiedUid;
   int inputSession = 0;
-  final emailEditing = CredentialEditingFormatter(),
-      passwordEditing = CredentialEditingFormatter();
+  @override
+  void initState() {
+    super.initState();
+    pinMode = ref.read(appLockProvider).resetUser != null;
+  }
+
   String? error;
   @override
   void dispose() {
     email.dispose();
     password.dispose();
+    newPin.dispose();
+    confirmPin.dispose();
     super.dispose();
   }
 
@@ -2160,20 +2639,49 @@ class _LoginState extends ConsumerState<LoginScreen> {
     final route = GoRouter.maybeOf(context);
     final goHome = widget.onSignedIn ?? () => route?.go('/');
     final authenticate = widget.authenticate;
+    if (pinMode &&
+        (!RegExp(r'^\d{4}$').hasMatch(newPin.text) ||
+            newPin.text != confirmPin.text)) {
+      newPin.clear();
+      confirmPin.clear();
+      setState(() => error = 'Enter matching 4-digit PINs');
+      return;
+    }
+    lock.beginPasswordLogin();
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
       loading = true;
       error = null;
     });
     try {
-      final uid = authenticate != null
-          ? await authenticate(email.text.trim(), password.text)
-          : (await FirebaseAuth.instance.signInWithEmailAndPassword(
-              email: email.text.trim(),
-              password: password.text,
-            )).user!.uid;
+      final uid =
+          verifiedUid ??
+          (authenticate != null
+              ? await authenticate(email.text.trim(), password.text)
+              : (await FirebaseAuth.instance.signInWithEmailAndPassword(
+                  email: email.text.trim(),
+                  password: password.text,
+                )).user!.uid);
       if (mounted) password.clear();
-      await lock.resetAfterPasswordLogin(uid);
+      if (verifiedUid == null) {
+        await lock.resetAfterPasswordLogin(uid, replacePin: pinMode);
+        if (mounted) verifiedUid = uid;
+      }
+      if (mounted && lock.needsSetup) {
+        if (!pinMode) {
+          setState(() => pinMode = true);
+          return;
+        }
+        await lock.setup(
+          newPin.text,
+          confirmPin.text,
+          useBiometric: useFingerprint,
+        );
+        if (mounted) {
+          newPin.clear();
+          confirmPin.clear();
+        }
+      }
       await a.connect(
         a.prefs.getString('last-store-$uid') ??
             const String.fromEnvironment(
@@ -2199,12 +2707,14 @@ class _LoginState extends ConsumerState<LoginScreen> {
         });
       }
     } finally {
+      if (!(verifiedUid != null && lock.needsSetup)) lock.finishPasswordLogin();
       if (mounted) setState(() => loading = false);
     }
   }
 
   @override
   Widget build(BuildContext c) {
+    final lock = ref.watch(appLockProvider);
     final a = ref.watch(appProvider),
         configured = widget.authenticate != null || Firebase.apps.isNotEmpty;
     return AppBackScope(
@@ -2233,12 +2743,15 @@ class _LoginState extends ConsumerState<LoginScreen> {
                     key: ValueKey('login-inputs-$inputSession'),
                     child: Column(
                       children: [
-                        TextField(
+                        credentialInput(
                           key: const Key('login-email'),
-                          inputFormatters: [emailEditing],
                           controller: email,
-                          readOnly: loading,
-                          keyboardType: TextInputType.emailAddress,
+                          readOnly: loading || verifiedUid != null,
+                          // Raw text variation avoids vendor email-domain prediction restoring
+                          // a deleted suffix. Keep the same mode when revealing a password.
+                          keyboardType: TextInputType.visiblePassword,
+                          textInputAction: TextInputAction.next,
+                          textDirection: TextDirection.ltr,
                           autofillHints: null,
                           autocorrect: false,
                           enableSuggestions: false,
@@ -2249,11 +2762,13 @@ class _LoginState extends ConsumerState<LoginScreen> {
                           decoration: InputDecoration(labelText: a.tr('Email')),
                         ),
                         const SizedBox(height: 18),
-                        TextField(
+                        credentialInput(
                           key: const Key('login-password'),
-                          inputFormatters: [passwordEditing],
                           controller: password,
-                          readOnly: loading,
+                          readOnly: loading || verifiedUid != null,
+                          keyboardType: TextInputType.visiblePassword,
+                          textInputAction: TextInputAction.done,
+                          textDirection: TextDirection.ltr,
                           obscureText: !showPassword,
                           autofillHints: null,
                           autocorrect: false,
@@ -2286,6 +2801,72 @@ class _LoginState extends ConsumerState<LoginScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 14),
+                  if (verifiedUid == null)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const LocalizedText('Set / reset PIN'),
+                      value: pinMode,
+                      onChanged: loading
+                          ? null
+                          : (v) => setState(() => pinMode = v),
+                    ),
+                  if (pinMode) ...[
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: a.dark ? Theme.of(c).colorScheme.surface : pale,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const LocalizedText(
+                            'Create 4-digit PIN',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 18,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          for (final field in [
+                            (newPin, 'New PIN', 'login-new-pin'),
+                            (confirmPin, 'Confirm PIN', 'login-confirm-pin'),
+                          ]) ...[
+                            TextField(
+                              key: Key(field.$3),
+                              controller: field.$1,
+                              enabled: !loading,
+                              obscureText: true,
+                              keyboardType: TextInputType.number,
+                              maxLength: 4,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              enableIMEPersonalizedLearning: false,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(4),
+                              ],
+                              decoration: InputDecoration(
+                                labelText: a.tr(field.$2),
+                                counterText: '',
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          if (verifiedUid != null && lock.biometricAvailable)
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const LocalizedText('Fingerprint'),
+                              value: useFingerprint,
+                              onChanged: loading
+                                  ? null
+                                  : (v) => setState(() => useFingerprint = v),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                   if (error != null)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -2297,7 +2878,13 @@ class _LoginState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 25),
                   FilledButton(
                     onPressed: configured && !loading ? signIn : null,
-                    child: Text(loading ? 'Please wait...' : a.tr('Sign in')),
+                    child: LocalizedText(
+                      loading
+                          ? 'Please wait...'
+                          : verifiedUid != null && lock.needsSetup
+                          ? 'Save PIN'
+                          : a.tr('Sign in'),
+                    ),
                   ),
                   const SizedBox(height: 18),
                   if (!configured)

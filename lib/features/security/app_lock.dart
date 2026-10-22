@@ -1,3 +1,4 @@
+import '../../ui/localized_text.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:cryptography/cryptography.dart';
@@ -93,6 +94,17 @@ class AppLockController extends ChangeNotifier {
   Map<String, dynamic>? _record;
   bool locked = false, busy = false, biometricAvailable = false;
   bool _migrationAuthorized = false;
+  bool passwordLoginPending = false;
+  void beginPasswordLogin() {
+    passwordLoginPending = true;
+    notifyListeners();
+  }
+
+  void finishPasswordLogin() {
+    passwordLoginPending = false;
+    notifyListeners();
+  }
+
   bool get migrating => _migrationAuthorized;
   int get pinLength => needsSetup ? 4 : (_record?['length'] as int? ?? 6);
   bool get legacyPin => _record != null && (_record?['length'] ?? 6) != 4;
@@ -294,6 +306,7 @@ class AppLockController extends ChangeNotifier {
   }
 
   void clearSession() {
+    passwordLoginPending = false;
     scope = null;
     _migrationAuthorized = false;
     _record = null;
@@ -301,8 +314,11 @@ class AppLockController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> resetAfterPasswordLogin(String uid) async {
-    if (resetUser == uid) {
+  Future<void> resetAfterPasswordLogin(
+    String uid, {
+    bool replacePin = false,
+  }) async {
+    if (replacePin || resetUser == uid) {
       await vault.delete('pharmacy-lock-v2-$uid');
       resetUser = null;
     }
@@ -344,11 +360,14 @@ class _AccessGateState extends ConsumerState<AppAccessGate>
   Widget build(BuildContext context) {
     ref.watch(appProvider);
     final lock = ref.watch(appLockProvider);
+    if (lock.passwordLoginPending) return widget.login();
     if (Firebase.apps.isNotEmpty) {
       final user = FirebaseAuth.instance.currentUser;
       // Keep the login page alive until the authenticated user's device lock
       // is bound. Auth success alone must not expose the dashboard mid-login.
-      if (user == null || lock.scope != user.uid) return widget.login();
+      if (user == null || lock.scope != user.uid || lock.needsSetup) {
+        return widget.login();
+      }
     }
     if (lock.enabled && (lock.locked || lock.needsSetup)) {
       return const UnlockScreen();
@@ -448,7 +467,7 @@ class _UnlockState extends ConsumerState<UnlockScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Text(
+                  LocalizedText(
                     setup
                         ? 'Create PIN'
                         : lock.legacyPin
@@ -458,6 +477,9 @@ class _UnlockState extends ConsumerState<UnlockScreen> {
                   ),
                   const SizedBox(height: 20),
                   TextField(
+                    enableIMEPersonalizedLearning: false,
+                    smartDashesType: SmartDashesType.disabled,
+                    smartQuotesType: SmartQuotesType.disabled,
                     key: const Key('unlock-pin'),
                     controller: pin,
                     enabled: !waiting,
@@ -494,6 +516,9 @@ class _UnlockState extends ConsumerState<UnlockScreen> {
                   if (setup) ...[
                     const SizedBox(height: 16),
                     TextField(
+                      enableIMEPersonalizedLearning: false,
+                      smartDashesType: SmartDashesType.disabled,
+                      smartQuotesType: SmartQuotesType.disabled,
                       key: const Key('confirm-pin'),
                       controller: confirmation,
                       enabled: !waiting,
@@ -506,15 +531,15 @@ class _UnlockState extends ConsumerState<UnlockScreen> {
                         confirmEditing,
                         FilteringTextInputFormatter.digitsOnly,
                       ],
-                      decoration: const InputDecoration(
-                        labelText: 'Confirm PIN',
+                      decoration: InputDecoration(
+                        labelText: a.tr('Confirm PIN'),
                         counterText: '',
                       ),
                     ),
                     if (lock.biometricAvailable)
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Fingerprint'),
+                        title: const LocalizedText('Fingerprint'),
                         value: fingerprint,
                         onChanged: waiting
                             ? null
@@ -618,7 +643,7 @@ class _UnlockState extends ConsumerState<UnlockScreen> {
                               color: Colors.white,
                             ),
                           )
-                        : Text(setup ? 'Save PIN' : 'Unlock'),
+                        : LocalizedText(setup ? 'Save PIN' : 'Unlock'),
                   ),
                   if (!setup &&
                       lock.biometricEnabled &&
@@ -630,7 +655,7 @@ class _UnlockState extends ConsumerState<UnlockScreen> {
                           ? null
                           : () => run(lock.unlockBiometric),
                       icon: const Icon(Icons.fingerprint, size: 28),
-                      label: const Text('Use fingerprint'),
+                      label: const LocalizedText('Use fingerprint'),
                     ),
                   ],
                   if (Firebase.apps.isNotEmpty)
@@ -644,7 +669,7 @@ class _UnlockState extends ConsumerState<UnlockScreen> {
                               lock.clearSession();
                               await app.signOut();
                             },
-                      child: const Text('Forgot PIN?'),
+                      child: const LocalizedText('Forgot PIN?'),
                     ),
                 ],
               ),
@@ -708,14 +733,14 @@ class _SecurityState extends ConsumerState<SecurityScreen> {
               const SizedBox(height: 14),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Fingerprint unlock'),
+                title: const LocalizedText('Fingerprint unlock'),
                 value: lock.biometricEnabled,
                 onChanged: lock.busy
                     ? null
                     : (v) => run(() => lock.setFingerprint(v)),
               ),
               const Divider(),
-              const Text(
+              const LocalizedText(
                 'Change 4-digit PIN',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 20),
               ),
@@ -728,6 +753,11 @@ class _SecurityState extends ConsumerState<SecurityScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 15),
                   child: TextField(
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    enableIMEPersonalizedLearning: false,
+                    smartDashesType: SmartDashesType.disabled,
+                    smartQuotesType: SmartQuotesType.disabled,
                     controller: f.$1,
                     obscureText: true,
                     maxLength: f.$1 == oldPin ? lock.pinLength : 4,
@@ -741,7 +771,7 @@ class _SecurityState extends ConsumerState<SecurityScreen> {
                       FilteringTextInputFormatter.digitsOnly,
                     ],
                     decoration: InputDecoration(
-                      labelText: f.$2,
+                      labelText: a.tr(f.$2),
                       counterText: '',
                     ),
                   ),
@@ -764,7 +794,7 @@ class _SecurityState extends ConsumerState<SecurityScreen> {
                         newPin.clear();
                         confirm.clear();
                       }),
-                child: const Text('Save PIN'),
+                child: const LocalizedText('Save PIN'),
               ),
               const SizedBox(height: 15),
               OutlinedButton.icon(
@@ -779,7 +809,7 @@ class _SecurityState extends ConsumerState<SecurityScreen> {
                     lock.clearSession();
                     if (c.mounted) Navigator.pop(c);
                   },
-                  child: const Text('Turn off demo lock'),
+                  child: const LocalizedText('Turn off demo lock'),
                 ),
             ],
           ),

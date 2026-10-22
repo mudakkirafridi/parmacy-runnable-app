@@ -1,3 +1,4 @@
+import 'package:pharmacy_hisab/core/bilingual.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:cryptography/cryptography.dart';
@@ -260,26 +261,30 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Due soon'), findsNothing);
       expect(find.text('Owners & shares'), findsNothing);
-      expect(find.text('Financial overview'), findsOneWidget);
+      expect(find.text(bilingual('Financial overview')), findsOneWidget);
       router.go('/registers');
       await tester.pumpAndSettle();
-      expect(find.text('Orders'), findsOneWidget);
+      expect(find.text(bilingual('New profile')), findsOneWidget);
       expect(find.text('Zakat companies'), findsNothing);
       router.go('/register/loans');
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('register-add-entry')));
       await tester.pumpAndSettle();
-      for (final label in ['Qarz', 'Qarz wosool']) {
-        expect(find.widgetWithText(ListTile, label), findsOneWidget);
-      }
+      expect(
+        find.byKey(const ValueKey('notebook-type-loan_lend')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('notebook-type-loan_lend')));
+      await tester.pumpAndSettle();
+      expect(find.text(bilingual('Qarz diya')), findsWidgets);
+      expect(find.text(bilingual('Qarz wosool')), findsOneWidget);
       expect(find.text('Opening loan receivable'), findsNothing);
       expect(find.text('Opening loan payable'), findsNothing);
-      Navigator.of(tester.element(find.widgetWithText(ListTile, 'Qarz'))).pop();
+      await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       router.go('/reports');
       await tester.pumpAndSettle();
-      expect(find.text('All reports'), findsOneWidget);
-      expect(find.text('Loan reports'), findsOneWidget);
+      expect(find.byKey(const ValueKey('report-type-all')), findsOneWidget);
       expect(find.text('Export CSV'), findsNothing);
     },
   );
@@ -301,15 +306,20 @@ void main() {
       );
       router.go('/profiles/salary');
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Add profile'));
+      await tester.tap(find.text(bilingual('Add profile')));
       await tester.pumpAndSettle();
       Finder field(String label) => find.byWidgetPredicate(
         (w) => w is TextField && w.decoration?.labelText == label,
       );
-      await tester.enterText(field('Name *'), 'UI Staff');
-      await tester.enterText(field('Monthly salary (Rs)'), '30000');
-      await tester.enterText(field('Salary due this month (Rs)'), '15000');
-      await tester.tap(find.widgetWithText(FilledButton, 'Save profile'));
+      await tester.enterText(field(bilingual('Name *')), 'UI Staff');
+      await tester.enterText(field(bilingual('Monthly salary (Rs)')), '30000');
+      await tester.enterText(
+        field(bilingual('Salary due this month (Rs)')),
+        '15000',
+      );
+      await tester.tap(
+        find.widgetWithText(FilledButton, bilingual('Save profile')),
+      );
       await tester.pumpAndSettle();
       final person = app.profiles.firstWhere((p) => p['name'] == 'UI Staff');
       expect(person['rate'], '30000');
@@ -356,9 +366,9 @@ void main() {
         find.byKey(const ValueKey('entry-reference')),
         'UI-BILL-1',
       );
-      await tester.tap(find.text('Review entry').last);
+      await tester.tap(find.text(bilingual('Save entry')).last);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Confirm and post'));
+      await tester.tap(find.widgetWithText(FilledButton, bilingual('Save')));
       await tester.pumpAndSettle();
       expect(app.orders.single['status'], 'received');
       expect(

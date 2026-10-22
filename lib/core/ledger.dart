@@ -92,7 +92,7 @@ class Ledger {
       fail('Bill, period or shift reference required');
     }
     final unique = t['onePerDay'] == true
-        ? '${x['type']}:${x['date']}'
+        ? 'daily_sales:${x['date']}'
         : t['obligation'] == true || t['period'] == true
         ? '${x['type']}:${x['party'] ?? ''}:${x['type'] == 'daily_sales' ? '${x['date']}:' : ''}${x['reference']}'
         : null;

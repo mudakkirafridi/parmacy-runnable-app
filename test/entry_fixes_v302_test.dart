@@ -1,3 +1,4 @@
+import 'package:pharmacy_hisab/core/bilingual.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -192,17 +193,17 @@ void main() {
       );
       router.go('/registers');
       await tester.pumpAndSettle();
-      expect(find.text('Rent'), findsNothing);
+      expect(find.text(bilingual('Rent')), findsNothing);
       expect(expenseCategories, contains('Rent'));
       router.go('/reports');
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Loan reports'));
+      await tester.tap(find.byKey(const ValueKey('report-type-all')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(bilingual('Loan reports')).last);
       await tester.pumpAndSettle();
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(find.text('Loan reports'), findsOneWidget);
-      expect(find.text('All reports'), findsOneWidget);
-      expect(router.routeInformationProvider.value.uri.query, isEmpty);
+      expect(router.routeInformationProvider.value.uri.path, '/');
       expect(tester.takeException(), isNull);
     },
   );

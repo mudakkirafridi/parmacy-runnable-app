@@ -1,3 +1,4 @@
+import 'package:pharmacy_hisab/core/bilingual.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -157,9 +158,9 @@ void main() {
         party: 'care',
       );
       expect(report.rows, [
-        ['Rs 50,000', 'Rs 10,000', '-', 'Rs 40,000', '2026-10-02'],
-        ['Rs 40,000', 'Rs 10,000', '-', 'Rs 30,000', '2026-10-03'],
-        ['Rs 30,000', '-', 'Rs 5,000', 'Rs 25,000', '2026-10-04'],
+        ['Rs 0', 'Rs 50,000', 'Rs 10,000', '-', 'Rs 40,000', '2026-10-02'],
+        ['Rs 0', 'Rs 40,000', 'Rs 10,000', '-', 'Rs 30,000', '2026-10-03'],
+        ['Rs 0', 'Rs 30,000', '-', 'Rs 5,000', 'Rs 25,000', '2026-10-04'],
       ]);
       expect(report.summary['Remaining'], 'Rs 25,000');
       expect(a.nextBillNumber('care'), '2');
@@ -230,19 +231,19 @@ void main() {
       );
       router.go('/profiles');
       await tester.pumpAndSettle();
-      expect(find.text('Add profile'), findsOneWidget);
-      await tester.tap(find.text('Add profile'));
+      expect(find.text(bilingual('Add profile')), findsOneWidget);
+      await tester.tap(find.text(bilingual('Add profile')));
       await tester.pumpAndSettle();
-      expect(find.byType(SimpleDialog), findsOneWidget);
-      Navigator.of(tester.element(find.byType(SimpleDialog))).pop();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      Navigator.of(tester.element(find.byType(AlertDialog))).pop();
       await tester.pumpAndSettle();
       router.go('/entry/salary_payment?party=staff');
       await tester.pumpAndSettle();
-      expect(find.text('Remaining salary'), findsOneWidget);
+      expect(find.text(bilingual('Remaining salary')), findsOneWidget);
       expect(find.text('Allocate to bill'), findsNothing);
       router.go('/entry/supplier_bill?party=khan');
       await tester.pumpAndSettle();
-      expect(find.text('Bill number'), findsOneWidget);
+      expect(find.text(bilingual('Bill number')), findsOneWidget);
       expect(find.text('Due date'), findsNothing);
       expect(
         tester

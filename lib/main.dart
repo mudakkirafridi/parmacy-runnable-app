@@ -65,7 +65,18 @@ Future<void> main() async {
 final router = GoRouter(
   routes: [
     GoRoute(path: '/', builder: (c, s) => const HomeScreen()),
-    GoRoute(path: '/registers', builder: (c, s) => const RegistersScreen()),
+    GoRoute(
+      path: '/entry',
+      builder: (c, s) => NotebookEntryScreen(
+        key: ValueKey(
+          'notebook-${s.uri}-${(s.extra as Map<String, dynamic>?)?["id"] ?? ""}',
+        ),
+        initialType: s.uri.queryParameters['type'],
+        initialParty: s.uri.queryParameters['party'],
+        initialDraft: s.extra as Map<String, dynamic>?,
+      ),
+    ),
+    GoRoute(path: '/registers', redirect: (c, s) => '/'),
     GoRoute(
       path: '/register/:module',
       builder: (c, s) => s.pathParameters['module'] == 'rent'

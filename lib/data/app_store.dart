@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/widgets.dart';
@@ -10,6 +11,7 @@ import 'local_workspace.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../core/ledger.dart';
+import '../core/bilingual.dart';
 import '../core/ownership.dart';
 import '../core/orders.dart';
 
@@ -70,6 +72,7 @@ class AppStore extends ChangeNotifier with WidgetsBindingObserver {
                   'zakat',
                   'zakat_companies',
                   'loans',
+                  'committee',
                   'owner',
                 ].contains(module)) ||
             (member['permissions'] as List? ?? []).contains('$module:post');
@@ -307,7 +310,7 @@ class AppStore extends ChangeNotifier with WidgetsBindingObserver {
       if (person == null) throw StateError('Select an active owner');
       x = {...x, 'ownerShareBps': person['shareBps']};
     }
-    final parts = splitPayment(x);
+    final parts = salaryParts(x);
     await _saveFinancial([
       for (final part in parts)
         {
@@ -318,6 +321,76 @@ class AppStore extends ChangeNotifier with WidgetsBindingObserver {
         },
     ]);
     await discardDraft(x['id']);
+  }
+
+  int salaryNet(String party) =>
+      -balance('salary:$party') - balance('salaryAdvance:$party');
+  int salaryDue(String party) => max(0, salaryNet(party));
+  int salaryCredit(String party) => max(0, -salaryNet(party));
+
+  List<Json> salaryParts(Json input) {
+    if (!['salary_payment', 'salary_advance'].contains(input['type'])) {
+      return splitPayment(input);
+    }
+    final party = input['party'] as String;
+    final gross = max(0, -balance('salary:$party'));
+    final credit = max(0, balance('salaryAdvance:$party'));
+    final useCredit = min(gross, credit);
+    final rows = allocateOldest('salary', party, gross, allowExcess: true);
+    List<Json> take(int skip, int amount) {
+      final result = <Json>[];
+      for (final row in rows) {
+        final n = row['amount'] as int;
+        if (skip >= n) {
+          skip -= n;
+          continue;
+        }
+        final used = min(n - skip, amount);
+        if (used > 0) result.add({'id': row['id'], 'amount': used});
+        amount -= used;
+        skip = 0;
+        if (amount == 0) break;
+      }
+      return result;
+    }
+
+    final paid = min(input['amount'] as int, gross - useCredit);
+    final extra = (input['amount'] as int) - paid;
+    return [
+      if (useCredit > 0)
+        ...splitPayment({
+          ...input,
+          'id': '${input['id']}-apply',
+          'type': 'salary_apply',
+          'amount': useCredit,
+          'allocations': take(0, useCredit),
+          'allowAdvance': false,
+        }),
+      if (paid > 0)
+        ...splitPayment({
+          ...input,
+          'type': 'salary_payment',
+          'amount': paid,
+          'allocations': take(useCredit, paid),
+          'allowAdvance': false,
+        }),
+      if (extra > 0)
+        {
+          ...input,
+          'id': paid > 0 ? '${input['id']}-advance' : input['id'],
+          'type': 'salary_advance',
+          'amount': extra,
+          'allocations': <Json>[],
+          'allowAdvance': true,
+        },
+    ];
+  }
+
+  void previewEntry(Json input) {
+    var next = state;
+    for (final part in salaryParts(input)) {
+      next = ledger.post(next, part)['state'];
+    }
   }
 
   List<Json> splitPayment(Json input) {
@@ -398,21 +471,66 @@ class AppStore extends ChangeNotifier with WidgetsBindingObserver {
         .where((e) => e['id'] == value['original'])
         .firstOrNull;
     if (original == null) throw StateError('Original entry is missing');
+    if (op == 'correctExpense' &&
+        original['reversedBy'] == value['reverseId']) {
+      final committedReverse = entries
+          .where((e) => e['id'] == value['reverseId'])
+          .firstOrNull;
+      if (committedReverse?['editTarget'] != value['entry']['id']) {
+        throw StateError(
+          'This entry was changed by another action. Refresh records.',
+        );
+      }
+      final result = ledger.post(state, {
+        ...Json.from(value['entry']),
+        'editedFrom': original['id'],
+        'editReversal': value['reverseId'],
+      });
+      state = result['state'];
+      entries.insert(0, pendingEntry(Json.from(result['entry'])));
+      return;
+    }
     final reversal = ledger.reverse(state, original, {
       'id': op == 'correctExpense' ? value['reverseId'] : id,
       'date': op == 'correctExpense' ? value['entry']['date'] : value['date'],
       'reason': value['reason'],
     });
     if (op == 'correctExpense') {
+      if ((original['orderId'] ?? '') != '') {
+        final order = orders
+            .where((o) => o['id'] == original['orderId'])
+            .firstOrNull;
+        if (order?['status'] != 'received' ||
+            order?['billId'] != original['id'] ||
+            value['entry']['orderId'] != original['orderId'] ||
+            value['entry']['party'] != original['party']) {
+          throw StateError(
+            'Keep the linked order company; refresh if its bill has changed',
+          );
+        }
+      }
       final posted = ledger.post(reversal['state'], {
         ...Json.from(value['entry']),
         'replaces': original['id'],
       });
       state = posted['state'];
       original['reversedBy'] = value['reverseId'];
+      if (original['orderId'] != null) {
+        orders
+            .where((o) => o['id'] == original['orderId'])
+            .firstOrNull
+            ?.addAll({
+              'status': 'received',
+              'billId': value['entry']['id'],
+              'billAmount': value['entry']['amount'],
+            });
+      }
       entries.insertAll(0, [
         pendingEntry(Json.from(posted['entry'])),
-        pendingEntry(Json.from(reversal['entry'])),
+        pendingEntry({
+          ...Json.from(reversal['entry']),
+          'correctionReversal': true,
+        }),
       ]);
     } else {
       state = reversal['state'];
@@ -637,6 +755,12 @@ class AppStore extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   String entryName(Json e) {
+    if ((e['party'] ?? '').toString().isEmpty) {
+      if (e['type'] == 'expense') {
+        return tr('${e['category'] ?? typeLabel('expense')}');
+      }
+      return typeLabel(e['type']);
+    }
     final profile = profiles.where((p) => p['id'] == e['party']).firstOrNull;
     if (profile != null) return profile['name'];
     return e['partyName'] ?? name(e['party']);
@@ -646,6 +770,21 @@ class AppStore extends ChangeNotifier with WidgetsBindingObserver {
     if (!canPost(p['module'])) throw StateError('Profile permission required');
     if ((p['name'] ?? '').toString().trim().isEmpty) {
       throw StateError('Enter name');
+    }
+    if (p['module'] == 'committee') {
+      final total = p['totalAmount'], installment = p['installmentAmount'];
+      if (total is! int ||
+          installment is! int ||
+          total <= 0 ||
+          total > 900000000000 ||
+          installment <= 0 ||
+          installment > total ||
+          !['Daily', 'Weekly', 'Monthly'].contains(p['frequency']) ||
+          DateTime.tryParse('${p['startDate']}') == null) {
+        throw StateError(
+          'Enter a valid installment total, amount and schedule',
+        );
+      }
     }
     await _saveLocalMutation('saveProfile', 'profile', {
       ...p,
@@ -903,11 +1042,18 @@ class AppStore extends ChangeNotifier with WidgetsBindingObserver {
         .replaceAll('Suppliers', 'Companies')
         .replaceAll('Supplier', 'Company')
         .replaceAll('supplier', 'company');
-    return ur ? (translations[label] ?? translations[en] ?? label) : label;
+    final english = englishLabel(label);
+    return ur
+        ? urduLabels[english] ??
+              translations[english] ??
+              translations[en] ??
+              english
+        : english;
   }
 
   String typeLabel(String type) =>
-      ledger.types[type]?[ur ? 'ur' : 'label'] ?? tr('Reversal');
+      tr(entryNames[type] ?? ledger.types[type]?['label'] ?? 'Reversal');
+
   int get netSalesTotal => entries.fold<int>(
     0,
     (sum, e) =>
@@ -936,10 +1082,11 @@ class AppStore extends ChangeNotifier with WidgetsBindingObserver {
       p['deleted'] != true &&
       p['purged'] != true;
   Map<String, int> profileBalances(String id) => {
-    'Qarz': balance('loanAsset:$id') + balance('loanDebt:$id'),
+    'Loan balance': balance('loanAsset:$id') + balance('loanDebt:$id'),
     'Salary remaining': -balance('salary:$id'),
     'Salary advance': balance('salaryAdvance:$id'),
     'Company balance': -balance('supplier:$id'),
+    'Committee balance': balance('committee:$id'),
   }..removeWhere((_, value) => value == 0);
   Future<void> removeProfile(Json profile, {bool force = false}) async {
     if (!force && profileBalances(profile['id']).isNotEmpty) {
@@ -1053,6 +1200,99 @@ class AppStore extends ChangeNotifier with WidgetsBindingObserver {
   List<Json> get owners => (settings['owners'] as List? ?? defaultOwners())
       .map((e) => Json.from(e))
       .toList();
+  bool entryVisible(Json entry) {
+    if (entry['correctionReversal'] == true) return false;
+    return !entries.any(
+      (e) =>
+          (e['replaces'] ?? e['editedFrom']) == entry['id'] ||
+          e['editReversal'] == entry['id'],
+    );
+  }
+
+  Json replacementInput(
+    Json original, {
+    required int amount,
+    required String date,
+    required String reference,
+    required String notes,
+    required String account,
+    required String party,
+    required String category,
+  }) {
+    final type = ledger.types[original['type']];
+    final reversed =
+        ledger.reverse(state, original, {
+              'id': 'preview-reverse',
+              'date': today(),
+              'reason': 'Entry edited',
+            })['state']
+            as Json;
+    final x = <String, dynamic>{
+      for (final key in [
+        'due',
+        'scheduleAmount',
+        'frequency',
+        'staffName',
+        'staffId',
+        'basis',
+        'rate',
+        'days',
+        'divisor',
+        'deduction',
+        'proration',
+      ])
+        if (original[key] != null) key: original[key],
+      'id': const Uuid().v4(),
+      if (original['orderId'] != null) 'orderId': original['orderId'],
+      'type': original['type'],
+      'date': date,
+      'amount': amount,
+      'party': party,
+      if (party.isNotEmpty) 'partyName': name(party),
+      'account': account,
+      'target': original['target'] ?? 'bank',
+      if (original['type'] == 'expense') 'category': category,
+      'reference': reference,
+      'notes': notes,
+      'allowAdvance': original['allowAdvance'] == true,
+      'allocations': <Json>[],
+      if (original['ownerShareBps'] != null)
+        'ownerShareBps': original['ownerShareBps'],
+    };
+    if (type['allocate'] == true) {
+      var left = amount;
+      final bills =
+          (reversed['obligations'] as Json).values
+              .where(
+                (b) =>
+                    b['party'] == party &&
+                    b['module'] == original['module'] &&
+                    b['remaining'] > 0,
+              )
+              .map((b) => Json.from(b))
+              .toList()
+            ..sort((a, b) {
+              final d = '${a['date']}'.compareTo('${b['date']}');
+              return d != 0
+                  ? d
+                  : '${a['reference']}'.compareTo('${b['reference']}');
+            });
+      for (final bill in bills) {
+        if (left == 0) break;
+        final used = min(left, bill['remaining'] as int);
+        x['allocations'].add({'id': bill['id'], 'amount': used});
+        left -= used;
+      }
+      if ((x['allocations'] as List).length > 3) {
+        throw StateError(
+          'This edit spans more than 3 bills. Reverse it and enter the corrected payment.',
+        );
+      }
+    }
+    ledger.post(reversed, x);
+    return x;
+  }
+
   Future<void> correctExpense(
     Json original,
     Json replacement,

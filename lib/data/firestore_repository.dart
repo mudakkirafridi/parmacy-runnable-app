@@ -25,7 +25,13 @@ class FirestoreRepository {
     if (member['role'] == 'owner') return true;
     if (module == 'owner') return false;
     if (member['role'] == 'manager' &&
-        !['salary', 'zakat', 'zakat_companies', 'loans'].contains(module)) {
+        ![
+          'salary',
+          'zakat',
+          'zakat_companies',
+          'loans',
+          'committee',
+        ].contains(module)) {
       return true;
     }
     return (member['permissions'] as List? ?? []).contains('$module:$action');
@@ -286,6 +292,16 @@ class FirestoreRepository {
     'lastOriginal': original,
     'lastReversal': reversal,
   };
+  Json correctionState(Json state) => {
+    'balances': Map.fromEntries(
+      (state['balances'] as Json).entries.where(
+        (e) => !e.key.startsWith('money:'),
+      ),
+    ),
+    'obligations': state['obligations'],
+    'unique': state['unique'],
+    'unallocated': state['unallocated'] ?? {},
+  };
   void moneyWrites(
     Transaction t,
     DocumentReference<Json> root,
@@ -414,7 +430,45 @@ class FirestoreRepository {
         moneyWrites(t, root, entry, entry['effects']);
         return {'id': entry['id']};
       });
-  Future<Json> correctExpense(
+  Future<Json> correctExpense(DocumentReference<Json> root, Json input) async {
+    final source =
+        (await root.collection('entries').doc(input['original']).get()).data();
+    if (source == null) throw StateError('Original missing');
+    final replacement = Json.from(input['entry']);
+    if (source['type'] != replacement['type']) {
+      throw StateError('Keep the same entry type');
+    }
+    if ((source['allocations'] as List? ?? []).length > 1 ||
+        (replacement['allocations'] as List? ?? []).length > 1) {
+      // Each stage has its own rule budget and stable retry identity.
+      await reverse(root, {
+        'id': input['reverseId'],
+        'original': input['original'],
+        'date': replacement['date'],
+        'reason': input['reason'],
+        'editTarget': replacement['id'],
+      });
+      final rev =
+          (await root.collection('entries').doc(input['reverseId']).get())
+              .data();
+      if (rev?['editTarget'] != replacement['id']) {
+        throw StateError(
+          'This entry was changed by another action. Refresh records.',
+        );
+      }
+      return post(
+        root,
+        {
+          ...replacement,
+          'editedFrom': input['original'],
+          'editReversal': input['reverseId'],
+        }..remove('replaces'),
+      );
+    }
+    return atomicCorrection(root, input);
+  }
+
+  Future<Json> atomicCorrection(
     DocumentReference<Json> root,
     Json input,
   ) async => db.runTransaction((t) async {
@@ -426,8 +480,11 @@ class FirestoreRepository {
         os = await t.get(originalRef);
     if (!os.exists) throw StateError('Original missing');
     final original = Json.from(plain(os.data()));
-    if (original['type'] != 'expense') throw StateError('Select an expense');
-    final sr = root.collection('modules').doc('expenses'),
+    if (replacement['type'] != original['type'] ||
+        ledger.types[replacement['type']]['module'] != original['module']) {
+      throw StateError('Keep the same entry type');
+    }
+    final sr = root.collection('modules').doc(original['module']),
         ss = await t.get(sr),
         cs = await t.get(root),
         control = await t.get(root.collection('control').doc('periods'));
@@ -444,6 +501,19 @@ class FirestoreRepository {
       ...replacement,
       'replaces': original['id'],
     });
+    if ((original['orderId'] ?? '') != '') {
+      if (replacement['orderId'] != original['orderId'] ||
+          replacement['party'] != original['party']) {
+        throw StateError('Keep the linked order company');
+      }
+      final order = (await t.get(
+        root.collection('orders').doc(original['orderId']),
+      )).data();
+      if (order?['status'] != 'received' ||
+          order?['billId'] != original['id']) {
+        throw StateError('Order bill has changed. Refresh and retry.');
+      }
+    }
     final entry = metadata(posted['entry']),
         reverseEntry = {
           ...reversalMetadata(reversed['entry'], original),
@@ -461,8 +531,17 @@ class FirestoreRepository {
         kind: 'correct',
         original: original['id'],
         reversal: reverseEntry['id'],
-      ),
+      )..['correctionState'] = correctionState(reversed['state']),
     );
+    if ((original['orderId'] ?? '') != '') {
+      t.update(root.collection('orders').doc(original['orderId']), {
+        'status': 'received',
+        'billId': entry['id'],
+        'billAmount': entry['amount'],
+        'updatedBy': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
     t.set(er, entry);
     t.set(root.collection('entries').doc(reverseEntry['id']), reverseEntry);
     t.update(originalRef, {'reversedBy': reverseEntry['id']});

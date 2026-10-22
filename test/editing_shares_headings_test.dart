@@ -1,3 +1,4 @@
+import 'package:pharmacy_hisab/core/bilingual.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -88,7 +89,7 @@ void main() {
         ['45', '45.0', '10'][i],
       );
     }
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text(bilingual('Save')));
     await tester.pumpAndSettle();
     expect(app.owners.map((e) => e['shareBps']).toList(), [4500, 4500, 1000]);
     expect(find.byType(AlertDialog), findsNothing);
@@ -114,7 +115,7 @@ void main() {
     await tester.pumpAndSettle();
     final heading = find.descendant(
       of: find.byType(AppBar),
-      matching: find.text('Confirmed return credit'),
+      matching: find.text(bilingual('Company return')),
     );
     expect(heading, findsOneWidget);
     final text = tester.widget<Text>(heading);

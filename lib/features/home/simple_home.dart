@@ -17,12 +17,10 @@ class _HomeState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext c) {
     final a = ref.watch(appProvider);
-    final balances = <String, int>{}, day = <String, int>{};
+    final balances = Map<String, int>.from(a.state['balances'] ?? {}),
+        day = <String, int>{};
     for (final e in a.entries) {
-      if ((e['date'] as String).compareTo(date) > 0) continue;
       for (final effect in (e['effects'] as Json).entries) {
-        balances[effect.key] =
-            (balances[effect.key] ?? 0) + (effect.value as int);
         if (e['date'] == date) {
           day[effect.key] = (day[effect.key] ?? 0) + (effect.value as int);
         }
@@ -31,6 +29,10 @@ class _HomeState extends ConsumerState<HomeScreen> {
     int sum(Map<String, int> values, String prefix) => values.entries
         .where((e) => e.key.startsWith(prefix))
         .fold(0, (s, e) => s + e.value);
+    final committees = CommitteeProgress.all(
+      a.profiles.where((p) => p['module'] == 'committee'),
+      a.entries,
+    );
     final net =
         -(day['netSales'] ?? 0) - (day['sales'] ?? 0) - (day['returns'] ?? 0);
     Widget card(
@@ -52,32 +54,12 @@ class _HomeState extends ConsumerState<HomeScreen> {
         ],
       ),
     );
-    Widget shortcut(String label, IconData icon, VoidCallback action) =>
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Tile(
-            onTap: action,
-            child: Row(
-              children: [
-                Icon(icon, color: blue),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Text(
-                    a.tr(label),
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                const Icon(Icons.chevron_right),
-              ],
-            ),
-          ),
-        );
     return Frame(
       title: 'Pharmacy Hisab',
       tab: 0,
       actions: [
         IconButton(
-          tooltip: 'Quick entry',
+          tooltip: a.tr('New entry'),
           onPressed: () => quickEntrySheet(c, a),
           icon: const Icon(Icons.add_circle_outline),
         ),
@@ -121,7 +103,7 @@ class _HomeState extends ConsumerState<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  const LocalizedText(
                     'Cash balance',
                     style: TextStyle(color: Colors.white, fontSize: 18),
                   ),
@@ -131,17 +113,59 @@ class _HomeState extends ConsumerState<HomeScreen> {
                     size: 40,
                     color: Colors.white,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.account_balance_outlined,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${a.tr('Bank')}  ${money(balances['money:bank'] ?? 0)}',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  const Divider(color: Colors.white30, height: 24),
+                  Text(
+                    '${a.tr('Cash + Bank')}  ${money(sum(balances, 'money:'))}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
+            if (a.owner && a.canPost('cashbook'))
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => actualBalanceDialog(c, a),
+                  icon: const Icon(Icons.balance, size: 18),
+                  label: const LocalizedText('Set actual balance'),
+                ),
+              ),
             const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => c.push('/entry'),
+                icon: const Icon(Icons.add),
+                label: const LocalizedText('New entry'),
+              ),
+            ),
+            const SizedBox(height: 18),
+            OutlinedButton.icon(
+              onPressed: () => c.push('/profiles'),
+              icon: const Icon(Icons.person_add_alt_1),
+              label: Text(a.tr('New profile')),
+            ),
+            const SizedBox(height: 18),
             big(a.tr('Financial overview'), size: 22),
             const SizedBox(height: 5),
-            Text(
-              'Sale aur expense: selected day. Balances: ${dateLabel(date)} tak.',
-              style: const TextStyle(fontSize: 12, color: Color(0xff60718f)),
-            ),
             const SizedBox(height: 12),
             if (a.can('expenses'))
               card(
@@ -199,38 +223,107 @@ class _HomeState extends ConsumerState<HomeScreen> {
             if (a.can('suppliers'))
               card(
                 'Supplier payable',
-                -sum(balances, 'supplier:'),
+                balances.entries
+                    .where((e) => e.key.startsWith('supplier:'))
+                    .fold<int>(0, (sum, e) => sum + max(0, -e.value)),
                 Icons.local_shipping_outlined,
               ),
+            if (a.can('salary')) ...[
+              const SizedBox(height: 10),
+              card(
+                'Salary remaining',
+                (balances.keys
+                        .where(
+                          (k) =>
+                              k.startsWith('salary:') ||
+                              k.startsWith('salaryAdvance:'),
+                        )
+                        .map((k) => k.substring(k.indexOf(':') + 1))
+                        .toSet())
+                    .fold<int>(0, (n, id) => n + a.salaryDue(id)),
+                Icons.badge_outlined,
+                color: orange,
+              ),
+            ],
+            if (a.can('committee')) ...[
+              const SizedBox(height: 10),
+              Tile(
+                color: a.dark ? null : pale,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    big('Committee / Qist', size: 18),
+                    const SizedBox(height: 8),
+                    pair(
+                      'Qist di',
+                      money(
+                        committees.values.fold<int>(0, (n, p) => n + p.paid),
+                      ),
+                    ),
+                    pair(
+                      'Raqam mili',
+                      money(
+                        committees.values.fold<int>(
+                          0,
+                          (n, p) => n + p.received,
+                        ),
+                      ),
+                    ),
+                    pair(
+                      'Qistain baqi',
+                      money(
+                        committees.values.fold<int>(
+                          0,
+                          (n, p) => n + p.remaining,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 22),
-            big('Quick entry', size: 22),
-            const SizedBox(height: 12),
-            if (a.canPost('suppliers'))
-              shortcut(
-                'Pay company / Ograi',
-                Icons.payments_outlined,
-                () => c.push('/entry/supplier_payment'),
-              ),
-            if (a.canPost('orders'))
-              shortcut(
-                'Order',
-                Icons.shopping_bag_outlined,
-                () => orderDialog(c, a),
-              ),
-            if (a.canPost('suppliers'))
-              shortcut(
-                'Company bill',
-                Icons.receipt_long_outlined,
-                () => c.push('/entry/supplier_bill'),
-              ),
             if (a.can('suppliers')) ...[
               const SizedBox(height: 18),
-              big('All bills', size: 22),
+              big('Companies', size: 22),
               const SizedBox(height: 12),
-              for (final bill in a.entries.where(
-                (e) => e['type'] == 'supplier_bill' && e['reversedBy'] == null,
+              for (final company in a.profiles.where(
+                (p) =>
+                    p['module'] == 'suppliers' &&
+                    p['active'] != false &&
+                    p['visible'] != 0,
               ))
-                entryTile(c, a, bill),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Tile(
+                    onTap: () => companyActions(c, a, company),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.local_shipping_outlined, color: blue),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            company['name'],
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 17,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          money(
+                            max(0, -a.balance('supplier:${company['id']}')),
+                          ),
+                          style: const TextStyle(
+                            color: blue,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ],
         ),
@@ -240,45 +333,7 @@ class _HomeState extends ConsumerState<HomeScreen> {
 }
 
 Future<void> quickEntrySheet(BuildContext c, AppStore a) async {
-  final choice = await showModalBottomSheet<String>(
-    context: c,
-    builder: (ctx) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              'Quick entry',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-          ),
-          for (final item in {
-            'supplier_payment': 'Pay company / Ograi',
-            'orders': 'Order',
-            'supplier_bill': 'Company bill',
-          }.entries)
-            if (a.canPost(item.key == 'orders' ? 'orders' : 'suppliers'))
-              ListTile(
-                leading: Icon(
-                  item.key == 'orders'
-                      ? Icons.shopping_bag_outlined
-                      : Icons.local_shipping_outlined,
-                  color: blue,
-                ),
-                title: Text(item.value),
-                onTap: () => Navigator.pop(ctx, item.key),
-              ),
-        ],
-      ),
-    ),
-  );
-  if (choice == null || !c.mounted) return;
-  if (choice == 'orders') {
-    orderDialog(c, a);
-  } else {
-    c.push('/entry/$choice');
-  }
+  c.push('/entry');
 }
 
 Future<void> reverseDialog(BuildContext c, AppStore a, Json entry) async {
@@ -299,7 +354,7 @@ Future<void> reverseDialog(BuildContext c, AppStore a, Json entry) async {
     context: c,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, set) => AlertDialog(
-        title: const Text('Remove / reverse entry'),
+        title: const LocalizedText('Remove / reverse entry'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -324,7 +379,7 @@ Future<void> reverseDialog(BuildContext c, AppStore a, Json entry) async {
         actions: [
           TextButton(
             onPressed: saving ? null : () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: const LocalizedText('Cancel'),
           ),
           FilledButton(
             onPressed: saving
@@ -349,4 +404,141 @@ Future<void> reverseDialog(BuildContext c, AppStore a, Json entry) async {
       ),
     ),
   );
+}
+
+Future<void> companyActions(BuildContext c, AppStore a, Json company) async {
+  final choice = await showModalBottomSheet<String>(
+    context: c,
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                big(company['name'], size: 23),
+                pair(
+                  'Remaining balance',
+                  money(max(0, -a.balance('supplier:${company['id']}'))),
+                ),
+              ],
+            ),
+          ),
+          if (a.canPost('suppliers'))
+            ListTile(
+              leading: const Icon(Icons.payments_outlined, color: blue),
+              title: const LocalizedText('Company payment'),
+              onTap: () => Navigator.pop(ctx, 'pay'),
+            ),
+          ListTile(
+            leading: const Icon(Icons.summarize_outlined, color: blue),
+            title: const LocalizedText('Company payments'),
+            onTap: () => Navigator.pop(ctx, 'report'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (choice == null || !c.mounted) return;
+  final id = Uri.encodeComponent(company['id']);
+  c.push(
+    choice == 'pay'
+        ? '/entry?type=supplier_payment&party=$id'
+        : '/reports?module=ograi&party=$id',
+  );
+}
+
+Future<void> actualBalanceDialog(BuildContext c, AppStore a) async {
+  final counted = TextEditingController();
+  String account = 'cash';
+  bool saving = false;
+  String? error;
+  await showSafeDialog(
+    context: c,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, set) => AlertDialog(
+        title: const LocalizedText('Actual balance'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              initialValue: account,
+              decoration: InputDecoration(labelText: a.tr('Account')),
+              items: [
+                for (final key in a.state['accounts'])
+                  DropdownMenuItem(
+                    value: key as String,
+                    child: Text(
+                      key == 'cash'
+                          ? 'Cash'
+                          : key == 'bank'
+                          ? 'Bank'
+                          : key,
+                    ),
+                  ),
+              ],
+              onChanged: (v) => set(() => account = v!),
+            ),
+            const SizedBox(height: 12),
+            pair('Current record', money(a.balance('money:$account'))),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('actual-balance'),
+              controller: counted,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: InputDecoration(
+                labelText: a.tr('Actual amount'),
+                prefixText: 'Rs ',
+              ),
+              autocorrect: false,
+              enableSuggestions: false,
+            ),
+            if (error != null)
+              Text(error!, style: const TextStyle(color: Colors.red)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: saving ? null : () => Navigator.pop(ctx),
+            child: const LocalizedText('Cancel'),
+          ),
+          FilledButton(
+            onPressed: saving
+                ? null
+                : () async {
+                    try {
+                      final delta =
+                          paisa(counted.text) - a.balance('money:$account');
+                      set(() => saving = true);
+                      if (delta != 0) {
+                        await a.submit({
+                          'id': const Uuid().v4(),
+                          'type': delta > 0 ? 'balance_in' : 'balance_out',
+                          'amount': delta.abs(),
+                          'account': account,
+                          'date': today(),
+                          'notes': 'Actual balance check',
+                        });
+                      }
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        set(() {
+                          saving = false;
+                          error = e.toString().replaceFirst('Bad state: ', '');
+                        });
+                      }
+                    }
+                  },
+            child: const LocalizedText('Save balance'),
+          ),
+        ],
+      ),
+    ),
+  );
+  counted.dispose();
 }

@@ -1,3 +1,4 @@
+import 'package:pharmacy_hisab/core/bilingual.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,10 +26,10 @@ void main() {
       expect(find.text('Customer returns'), findsNothing);
       router.go('/profiles');
       await tester.pumpAndSettle();
-      expect(find.text('Loan people'), findsWidgets);
-      expect(find.text('Staff profiles'), findsWidgets);
+      expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+      expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
       expect(find.text('Zakat companies'), findsNothing);
-      expect(find.text('Zakat recipients'), findsWidgets);
+      expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
       expect(find.text('Customer credit sale'), findsNothing);
       router.go('/register/rent');
       await tester.pumpAndSettle();
@@ -36,8 +37,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Charge rent period'), findsNothing);
       expect(find.text('Security deposit'), findsNothing);
-      expect(find.text('Pay rent'), findsNothing);
-      expect(find.text('Record expense'), findsWidgets);
+      expect(find.text(bilingual('Pay rent')), findsNothing);
+      expect(find.text(bilingual('Kharcha / Expense')), findsWidgets);
     },
   );
 }

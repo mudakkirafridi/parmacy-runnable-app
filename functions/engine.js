@@ -6,7 +6,7 @@ function authorize(member, module, action='post') {
  if (!member || !member.active) fail('Access revoked or no store membership');
  if(member.role==='owner') return;
  if(module==='owner' || action==='owner') fail('Owner approval required');
- if(member.role==='manager' && !['salary','zakat','zakat_companies','loans'].includes(module)) return;
+ if(member.role==='manager' && !['salary','zakat','zakat_companies','loans','committee'].includes(module)) return;
  if(!(member.permissions||[]).includes(`${module}:${action}`)) fail('Module permission required');
 }
 function post(previous, input, member) {
@@ -27,7 +27,7 @@ function post(previous, input, member) {
  if(type.onePerDay&&['cash','bank','returns','refundCash','refundBank','retained','credits','reductions'].some(k=>x[k]!==undefined))fail('Enter only the net daily sale from Abuzar');
  if(type.period&&!x.reference) fail('Unique period or shift reference required');
  if(type.obligation&&!x.reference) fail('Bill/period reference required');
- const unique=type.onePerDay?`${x.type}:${x.date}`:(type.obligation||type.period)?`${x.type}:${x.party||''}:${x.type==='daily_sales'?x.date+':':''}${x.reference}`:null;
+ const unique=type.onePerDay?`daily_sales:${x.date}`:(type.obligation||type.period)?`${x.type}:${x.party||''}:${x.type==='daily_sales'?x.date+':':''}${x.reference}`:null;
  if(unique && s.unique[unique]) fail('This bill or period is already posted');
  if(unique)s.unique[unique]=x.id;
  const effects={}; const add=(a,n)=>effects[a]=(effects[a]||0)+n;

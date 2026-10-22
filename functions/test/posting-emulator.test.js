@@ -1,7 +1,7 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');
 test('free Firestore: real rules enforce financial posting and isolation',{skip:!process.env.FIRESTORE_EMULATOR_HOST},async()=>{
  const {initializeTestEnvironment,assertFails,assertSucceeds}=require('@firebase/rules-unit-testing');const {doc,setDoc,getDoc,getDocs,collection,deleteDoc,updateDoc,writeBatch,serverTimestamp}=require('firebase/firestore');const {postDb,correctDb,reverseDb,today}=require('./firestore_helpers');
- const env=await initializeTestEnvironment({projectId:'demo-pharmacy-free-v2',firestore:{rules:fs.readFileSync('../firestore.rules','utf8')}});const store='shop';
+ const env=await initializeTestEnvironment({projectId:'demo-pharmacy-free-v2',firestore:{rules:fs.readFileSync('../firestore.rules','utf8')}});const store='shop';await env.clearFirestore();
  try{
  await env.withSecurityRulesDisabled(async ctx=>{const db=ctx.firestore();await setDoc(doc(db,'system/postingTypes'),JSON.parse(fs.readFileSync('../config/posting-types.json','utf8')));await setDoc(doc(db,`stores/${store}`),{name:'Test',accounts:['cash','bank'],owners:[{id:'owner-1',name:'First',shareBps:4000},{id:'owner-2',name:'Second',shareBps:4000},{id:'owner-3',name:'Third',shareBps:2000}],zakatTarget:0});for(const module of ['sales','suppliers','salary','rent','loans','expenses','cashbook','zakat','zakat_companies','owner'])await setDoc(doc(db,`stores/${store}/modules/${module}`),{balances:{},obligations:{},unique:{},unallocated:{},lastOperation:'',lastKind:'',lastOriginal:'',lastReversal:''});for(const account of ['cash','bank'])await setDoc(doc(db,`stores/${store}/accounts/${account}`),{balance:0,lastOperation:'',lastModule:''});await setDoc(doc(db,`stores/${store}/control/periods`),{lockedThrough:''});await setDoc(doc(db,`stores/${store}/members/owner`),{role:'owner',active:true,permissions:[]});await setDoc(doc(db,`stores/${store}/members/staff`),{role:'staff',active:true,permissions:['suppliers:read','suppliers:post']});});
  const db=env.authenticatedContext('owner').firestore(),staff=env.authenticatedContext('staff').firestore();
@@ -87,6 +87,52 @@ test('free Firestore: real rules enforce financial posting and isolation',{skip:
  await assertFails(setDoc(doc(db,`stores/${store}/entries/fake`),{id:'fake',type:'expense',module:'expenses',amount:999,createdBy:'owner',createdAt:serverTimestamp()}));
  await assertFails(updateDoc(doc(db,`stores/${store}`),{owners:[{id:'one',name:'One',shareBps:9999}]}));
  await assertSucceeds(updateDoc(doc(db,`stores/${store}`),{owners:[{id:'one',name:'One',shareBps:5000},{id:'two',name:'Two',shareBps:5000}]}));
+
+ const {editDb}=require('./firestore_helpers');
+ console.log('Checking atomic edits across salary, bill, payment, loan and daily sale');
+ await assertSucceeds(postDb(db,store,{id:'edit-bill',type:'supplier_bill',party:'edit-co',amount:100000}));
+ await assertSucceeds(editDb(db,store,'edit-bill',{id:'edit-bill-new',type:'supplier_bill',party:'edit-co',amount:50000,reference:'edit-bill'}));
+ console.log('Generic bill edit passed');
+ assert.equal((await getDoc(doc(db,`stores/${store}/modules/suppliers`))).data().obligations['edit-bill-new'].remaining,50000);
+ await assertSucceeds(postDb(db,store,{id:'edit-pay',type:'supplier_payment',party:'edit-co',amount:30000,allocations:[{id:'edit-bill-new',amount:30000}]}));
+ await assertSucceeds(editDb(db,store,'edit-pay',{id:'edit-pay-new',type:'supplier_payment',party:'edit-co',amount:10000,allocations:[{id:'edit-bill-new',amount:10000}]}));
+ console.log('Generic payment edit passed');
+ await assertFails(editDb(staff,store,'edit-pay-new',{id:'staff-edited',type:'supplier_payment',party:'edit-co',amount:10000,allocations:[{id:'edit-bill-new',amount:10000}]},undefined,'staff'));
+ assert.equal((await getDoc(doc(db,`stores/${store}/modules/suppliers`))).data().obligations['edit-bill-new'].remaining,40000);
+ await assert.rejects(editDb(db,store,'edit-bill-new',{id:'linked-edit',type:'supplier_bill',party:'edit-co',amount:70000}),/linked allocations/);
+ await assertSucceeds(postDb(db,store,{id:'edit-loan',type:'loan_lend',party:'edit-person',amount:100000}));
+ await assertSucceeds(editDb(db,store,'edit-loan',{id:'edit-loan-new',type:'loan_lend',party:'edit-person',amount:50000}));
+ assert.equal((await getDoc(doc(db,`stores/${store}/modules/loans`))).data().balances['loanAsset:edit-person'],50000);
+ await assertSucceeds(postDb(db,store,{id:'salary-due42',type:'salary_accrual',party:'staff42',amount:500000,reference:'42-month'}));
+ await assertSucceeds(postDb(db,store,{id:'salary-paid42',type:'salary_payment',party:'staff42',amount:500000,allocations:[{id:'salary-due42',amount:500000}]}));
+ await assertSucceeds(postDb(db,store,{id:'salary-extra42',type:'salary_advance',party:'staff42',amount:500000}));
+ const sal42=(await getDoc(doc(db,`stores/${store}/modules/salary`))).data().balances;
+ assert.equal(sal42['salary:staff42'],0);assert.equal(sal42['salaryAdvance:staff42'],500000);
+ await assertSucceeds(editDb(db,store,'salary-paid42',{id:'salary-paid42-new',type:'salary_payment',party:'staff42',amount:200000,allocations:[{id:'salary-due42',amount:200000}]}));
+ await assertSucceeds(editDb(db,store,'sale',{id:'sale-edited42',type:'daily_sales',amount:50000}));
+ await assertSucceeds(editDb(db,store,'edit-loan-new',{id:'repeat-edit42',type:'loan_lend',party:'edit-person',amount:25000}));
+ await assertFails(editDb(db,store,'repeat-edit42',{id:'tamper-edit42',type:'loan_lend',party:'edit-person',amount:20000},next=>{next.balances['loanAsset:edit-person']+=1;}));
+
+ console.log('Checking received order bill edits and payments allocated over three bills');
+ await assertSucceeds(setDoc(doc(db,`stores/${store}/orders/order42`),{...order,id:'order42',status:'open',billId:'',billAmount:0,updatedAt:serverTimestamp()}));
+ await assertSucceeds(postDb(db,store,{id:'order42-bill',type:'supplier_bill',amount:800000,orderId:'order42'}));
+ await assertSucceeds(editDb(db,store,'order42-bill',{id:'order42-edited',type:'supplier_bill',amount:600000,orderId:'order42'}));
+ console.log('Linked order bill edit passed');
+ assert.equal((await getDoc(doc(db,`stores/${store}/orders/order42`))).data().billAmount,600000);
+ for(let n=1;n<=3;n++)await assertSucceeds(postDb(db,store,{id:'edit3-b'+n,type:'supplier_bill',party:'edit3',amount:100000}));
+ await assertSucceeds(postDb(db,store,{id:'edit3-pay',type:'supplier_payment',party:'edit3',amount:250000,allocations:[{id:'edit3-b1',amount:100000},{id:'edit3-b2',amount:100000},{id:'edit3-b3',amount:50000}]}));
+ const threeEdit={id:'edit3-new',type:'supplier_payment',party:'edit3',amount:150000,allocations:[{id:'edit3-b1',amount:100000},{id:'edit3-b2',amount:50000}]};
+ await assert.rejects(editDb(db,store,'edit3-pay',threeEdit,()=>{throw new Error('Simulated interruption');}),/Simulated interruption/);
+ assert.equal((await getDoc(doc(db,`stores/${store}/entries/edit3-pay`))).data().reversedBy,'reverse-edit3-pay');
+ await assert.rejects(editDb(db,store,'edit3-pay',{...threeEdit,id:'conflicting-edit'}),/Another edit/);
+ await assertSucceeds(editDb(db,store,'edit3-pay',threeEdit));
+ const afterThreeCash=(await getDoc(doc(db,`stores/${store}/accounts/cash`))).data().balance;
+ await assertSucceeds(editDb(db,store,'edit3-pay',threeEdit));
+ assert.equal((await getDoc(doc(db,`stores/${store}/accounts/cash`))).data().balance,afterThreeCash);
+
+ assert.equal((await getDoc(doc(db,`stores/${store}/modules/suppliers`))).data().obligations['edit3-b3'].remaining,100000);
+ await assertSucceeds(postDb(db,store,{id:'guard-correction',type:'salary_accrual',party:'guard-staff',amount:50000}));
+ await assertFails(reverseDb(db,store,'guard-correction','forged-correction',(e,next)=>{e.correctionReversal=true;next.operation.correctionReversal=true;next.lastKind='correct';next.balances['expense:salary']=123456789;}));
  const cash=(await getDoc(doc(db,`stores/${store}/accounts/cash`))).data().balance;const date=today(),batch=writeBatch(db);batch.set(doc(db,`stores/${store}/closures/${date}`),{date,expected:cash,counted:cash,difference:0,reason:'',by:'owner',at:serverTimestamp()});batch.set(doc(db,`stores/${store}/control/periods`),{lockedThrough:date});await assertSucceeds(batch.commit());
  await assert.rejects(postDb(db,store,{id:'closed',type:'expense',amount:500,category:'Tea'}),/Day is closed/);
  await env.withSecurityRulesDisabled(ctx=>updateDoc(doc(ctx.firestore(),`stores/${store}/members/staff`),{active:false}));await assertFails(getDoc(doc(staff,`stores/${store}`)));

@@ -130,6 +130,11 @@ class _SimpleSaleState extends ConsumerState<SimpleSaleScreen> {
             ),
             const SizedBox(height: 10),
             TextFormField(
+              autocorrect: false,
+              enableSuggestions: false,
+              enableIMEPersonalizedLearning: false,
+              smartDashesType: SmartDashesType.disabled,
+              smartQuotesType: SmartQuotesType.disabled,
               key: const Key('net-daily-sale'),
               controller: amount,
               keyboardType: const TextInputType.numberWithOptions(
@@ -218,13 +223,13 @@ class _SimpleRentState extends ConsumerState<SimpleRentScreen> {
   @override
   Widget build(BuildContext c) {
     final a = ref.watch(appProvider), people = a.people('rent');
-    if (party.isEmpty && people.isNotEmpty) party = people.first['id'];
     return Frame(
       title: 'Pay rent',
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: people.any((p) => p['id'] == party) ? party : null,
             decoration: InputDecoration(labelText: a.tr('Select person')),
             items: [
@@ -242,6 +247,11 @@ class _SimpleRentState extends ConsumerState<SimpleRentScreen> {
             label: Text(a.tr('Add person')),
           ),
           TextField(
+            autocorrect: false,
+            enableSuggestions: false,
+            enableIMEPersonalizedLearning: false,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
             controller: amount,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: InputDecoration(
@@ -268,6 +278,11 @@ class _SimpleRentState extends ConsumerState<SimpleRentScreen> {
             },
           ),
           TextField(
+            autocorrect: false,
+            enableSuggestions: false,
+            enableIMEPersonalizedLearning: false,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
             controller: period,
             decoration: InputDecoration(
               labelText: a.tr('Bill / period'),
@@ -276,6 +291,7 @@ class _SimpleRentState extends ConsumerState<SimpleRentScreen> {
           ),
           const SizedBox(height: 18),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: account,
             decoration: InputDecoration(labelText: a.tr('Payment account')),
             items: [
@@ -297,6 +313,11 @@ class _SimpleRentState extends ConsumerState<SimpleRentScreen> {
           ),
           const SizedBox(height: 18),
           TextField(
+            autocorrect: false,
+            enableSuggestions: false,
+            enableIMEPersonalizedLearning: false,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
             controller: notes,
             decoration: InputDecoration(labelText: a.tr('Notes')),
           ),
@@ -378,6 +399,11 @@ Future<void> editExpenseDialog(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
+                  smartDashesType: SmartDashesType.disabled,
+                  smartQuotesType: SmartQuotesType.disabled,
                   controller: amount,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
@@ -389,6 +415,7 @@ Future<void> editExpenseDialog(
                 ),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: category,
                   decoration: InputDecoration(labelText: a.tr('Category')),
                   items: [
@@ -399,18 +426,27 @@ Future<void> editExpenseDialog(
                 ),
                 const SizedBox(height: 14),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: account,
                   decoration: InputDecoration(
                     labelText: a.tr('Payment account'),
                   ),
                   items: [
                     for (final s in a.state['accounts'])
-                      DropdownMenuItem(value: s as String, child: Text(s)),
+                      DropdownMenuItem(
+                        value: s as String,
+                        child: Text(a.tr(s)),
+                      ),
                   ],
                   onChanged: (v) => account = v!,
                 ),
                 const SizedBox(height: 14),
                 TextField(
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
+                  smartDashesType: SmartDashesType.disabled,
+                  smartQuotesType: SmartQuotesType.disabled,
                   controller: notes,
                   decoration: InputDecoration(labelText: a.tr('Notes')),
                 ),

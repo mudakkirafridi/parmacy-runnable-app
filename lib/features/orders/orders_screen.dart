@@ -30,9 +30,9 @@ class _OrdersState extends ConsumerState<OrdersScreen> {
                 padding: const EdgeInsets.all(16),
                 child: FilledButton.icon(
                   key: const Key('register-add-entry'),
-                  onPressed: () => orderDialog(c, a),
+                  onPressed: () => c.push('/entry?type=order'),
                   icon: const Icon(Icons.add),
-                  label: const Text('New order'),
+                  label: const LocalizedText('New order'),
                 ),
               ),
             )
@@ -41,6 +41,11 @@ class _OrdersState extends ConsumerState<OrdersScreen> {
         padding: const EdgeInsets.all(17),
         children: [
           TextField(
+            autocorrect: false,
+            enableSuggestions: false,
+            enableIMEPersonalizedLearning: false,
+            smartDashesType: SmartDashesType.disabled,
+            smartQuotesType: SmartQuotesType.disabled,
             onChanged: (v) => setState(() => search = v),
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
@@ -68,12 +73,12 @@ class _OrdersState extends ConsumerState<OrdersScreen> {
           if (a.people('suppliers').isEmpty)
             TextButton(
               onPressed: () => profileDialog(c, a, 'suppliers'),
-              child: const Text('Add company'),
+              child: const LocalizedText('Add company'),
             ),
           if (orders.isEmpty)
             const Padding(
               padding: EdgeInsets.all(24),
-              child: Text('No orders yet'),
+              child: LocalizedText('No orders yet'),
             ),
           for (final order in orders)
             Padding(
@@ -103,7 +108,7 @@ class _OrdersState extends ConsumerState<OrdersScreen> {
                               .firstOrNull;
                           if (bill != null) entryDetails(c, a, bill);
                         },
-                        child: const Text('View bill / reverse'),
+                        child: const LocalizedText('View bill / reverse'),
                       ),
                     ],
                     if (order['status'] == 'open' &&
@@ -111,9 +116,9 @@ class _OrdersState extends ConsumerState<OrdersScreen> {
                       const SizedBox(height: 12),
                       FilledButton.icon(
                         icon: const Icon(Icons.receipt_long_outlined),
-                        label: const Text('Bill received - add bill'),
+                        label: const LocalizedText('Bill received - add bill'),
                         onPressed: () => c.push(
-                          '/entry/supplier_bill',
+                          '/entry?type=supplier_bill',
                           extra: {
                             'id': const Uuid().v4(),
                             'type': 'supplier_bill',
@@ -131,25 +136,27 @@ class _OrdersState extends ConsumerState<OrdersScreen> {
                         children: [
                           TextButton(
                             onPressed: () => orderDialog(c, a, existing: order),
-                            child: const Text('Edit order'),
+                            child: const LocalizedText('Edit order'),
                           ),
                           TextButton(
                             onPressed: () async {
                               final ok = await showDialog<bool>(
                                 context: c,
                                 builder: (ctx) => AlertDialog(
-                                  title: const Text(
+                                  title: const LocalizedText(
                                     'Cancel duplicate / wrong order?',
                                   ),
                                   actions: [
                                     TextButton(
                                       onPressed: () =>
                                           Navigator.pop(ctx, false),
-                                      child: const Text('Keep order'),
+                                      child: const LocalizedText('Keep order'),
                                     ),
                                     FilledButton(
                                       onPressed: () => Navigator.pop(ctx, true),
-                                      child: const Text('Cancel order'),
+                                      child: const LocalizedText(
+                                        'Cancel order',
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -164,7 +171,7 @@ class _OrdersState extends ConsumerState<OrdersScreen> {
                                 );
                               }
                             },
-                            child: const Text('Remove order'),
+                            child: const LocalizedText('Remove order'),
                           ),
                         ],
                       ),
@@ -204,7 +211,9 @@ Future<void> orderDialog(BuildContext c, AppStore a, {Json? existing}) async {
                 DropdownButtonFormField<String>(
                   initialValue: company.isEmpty ? null : company,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Company *'),
+                  decoration: InputDecoration(
+                    labelText: a.tr('Select company'),
+                  ),
                   items: [
                     for (final p in a.people('suppliers'))
                       DropdownMenuItem(value: p['id'], child: Text(p['name'])),
@@ -213,26 +222,36 @@ Future<void> orderDialog(BuildContext c, AppStore a, {Json? existing}) async {
                 ),
                 const SizedBox(height: 12),
                 TextField(
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
+                  smartDashesType: SmartDashesType.disabled,
+                  smartQuotesType: SmartQuotesType.disabled,
                   key: const Key('order-person'),
                   controller: staffName,
                   enabled: !saving,
                   textCapitalization: TextCapitalization.words,
                   maxLength: 120,
-                  decoration: const InputDecoration(
-                    labelText: 'Order dene wale ka naam *',
+                  decoration: InputDecoration(
+                    labelText: a.tr('Order dene wale ka naam *'),
                     hintText: 'Umar',
                     counterText: '',
                   ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
+                  smartDashesType: SmartDashesType.disabled,
+                  smartQuotesType: SmartQuotesType.disabled,
                   key: const Key('order-amount'),
                   controller: amount,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(
-                    labelText: 'Order amount (Rs) *',
+                  decoration: InputDecoration(
+                    labelText: a.tr('Order amount (Rs) *'),
                     hintText: 'Misal: 8000',
                   ),
                 ),
@@ -252,10 +271,15 @@ Future<void> orderDialog(BuildContext c, AppStore a, {Json? existing}) async {
                   },
                 ),
                 TextField(
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  enableIMEPersonalizedLearning: false,
+                  smartDashesType: SmartDashesType.disabled,
+                  smartQuotesType: SmartQuotesType.disabled,
                   controller: notes,
                   maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Medicines / notes (optional)',
+                  decoration: InputDecoration(
+                    labelText: a.tr('Medicines / notes (optional)'),
                   ),
                 ),
                 if (error != null)
@@ -267,7 +291,7 @@ Future<void> orderDialog(BuildContext c, AppStore a, {Json? existing}) async {
         actions: [
           TextButton(
             onPressed: saving ? null : () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: const LocalizedText('Cancel'),
           ),
           FilledButton(
             onPressed: saving
@@ -326,4 +350,88 @@ Future<void> orderDialog(BuildContext c, AppStore a, {Json? existing}) async {
   amount.dispose();
   notes.dispose();
   staffName.dispose();
+}
+
+Future<void> orderDetails(BuildContext c, AppStore a, Json order) async {
+  final action = await showModalBottomSheet<String>(
+    context: c,
+    isScrollControlled: true,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            big(order['companyName'] ?? a.name(order['party']), size: 23),
+            pair('Amount', money(order['amount'])),
+            pair('Order by', order['staffName'] ?? ''),
+            pair('Date', dateLabel(order['date'])),
+            if (order['status'] == 'open' && a.canPost('orders')) ...[
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, 'bill'),
+                icon: const Icon(Icons.receipt_long),
+                label: const LocalizedText('Receive bill'),
+              ),
+              TextButton.icon(
+                onPressed: () => Navigator.pop(ctx, 'edit'),
+                icon: const Icon(Icons.edit_outlined),
+                label: const LocalizedText('Edit order'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 'cancel'),
+                child: const LocalizedText('Cancel order'),
+              ),
+            ],
+            if (order['status'] == 'received')
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, 'view'),
+                child: const LocalizedText('View bill'),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (action == null || !c.mounted) return;
+  if (action == 'bill') {
+    c.push(
+      '/entry?type=supplier_bill',
+      extra: {
+        'id': const Uuid().v4(),
+        'orderId': order['id'],
+        'party': order['party'],
+        'amount': order['amount'],
+        'date': today(),
+        'notes': 'Order by ${order['staffName']}',
+      },
+    );
+  }
+  if (action == 'edit') await orderDialog(c, a, existing: order);
+  if (action == 'view') {
+    final bill = a.entries.where((e) => e['id'] == order['billId']).firstOrNull;
+    if (bill != null && c.mounted) entryDetails(c, a, bill);
+  }
+  if (action == 'cancel' && c.mounted) {
+    final yes = await showDialog<bool>(
+      context: c,
+      builder: (ctx) => AlertDialog(
+        title: const LocalizedText('Cancel order'),
+        content: Text(order['companyName'] ?? a.name(order['party'])),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const LocalizedText('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const LocalizedText('Confirm'),
+          ),
+        ],
+      ),
+    );
+    if (yes == true && c.mounted) {
+      await perform(c, () => a.saveOrder({...order, 'status': 'cancelled'}));
+    }
+  }
 }
